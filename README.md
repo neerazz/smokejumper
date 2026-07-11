@@ -8,9 +8,15 @@ Smokejumpers are the elite firefighters who jump in the moment a wildfire alert 
 
 ## Architecture (v1)
 
-![Smokejumper architecture](architecture/smokejumper-architecture.svg)
+### High-level components
 
-The editable Mermaid source is [`architecture/smokejumper-architecture.mmd`](architecture/smokejumper-architecture.mmd). Re-render with:
+![Smokejumper component view](architecture/smokejumper-components.svg)
+
+### Event flow & boundary contracts
+
+![Smokejumper flow](architecture/smokejumper-architecture.svg)
+
+The component view (`smokejumper-components.svg`) is hand-maintained SVG. The flow diagram's editable Mermaid source is [`architecture/smokejumper-architecture.mmd`](architecture/smokejumper-architecture.mmd). Re-render with:
 
 ```bash
 npx -y @mermaid-js/mermaid-cli -i architecture/smokejumper-architecture.mmd -o architecture/smokejumper-architecture.svg

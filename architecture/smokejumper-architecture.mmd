@@ -1,77 +1,85 @@
-%% Smokejumper — High-Level Architecture (v1 brainstorm, 2026-07-10)
-%% Viewpoint: container view of the agentic SRE messaging bot core.
+%% Smokejumper — High-Level Architecture (v1, 2026-07-10)
+%% Viewpoint: layered container view of the agentic SRE messaging bot core.
 %% Audience: contributors (platform seam = B10). One question answered:
 %%   "What are the blocks, the boundary contracts between them, and which parts
-%%    are core (build) vs black-box ports (stubbed, Curlix provides later)?"
+%%    are core (build) vs black-box ports (stubbed, platform provides later)?"
 %% Editing: this .mmd is the source of truth; re-render the SVG with:
 %%   npx -y @mermaid-js/mermaid-cli -i smokejumper-architecture.mmd -o smokejumper-architecture.svg
 %% Styling: teal = core (you build) · dashed grey = black-box port / external ·
 %%          amber = approval-gated · violet = knowledge/learning loop.
 %% B8 (AuditEvent): EVERY core block appends to the Flight Recorder async;
-%%   drawn once from the Intelligence spine to keep the layout readable.
+%%   drawn once from the Intelligence layer to keep the layout readable.
 
 flowchart TB
 
-  %% ── Sources ────────────────────────────────────────────────
-  subgraph SRC["Alert & chat sources"]
+  %% ═══ LAYER 1 · SOURCES ══════════════════════════════════════
+  subgraph L1["  ALERT & CHAT SOURCES  "]
     direction LR
-    GRAF["Grafana<br/>webhook"]
-    DD["Datadog<br/>webhook"]
-    PD["PagerDuty<br/>events v2"]
-    GEN["Splunk / generic<br/>JSON"]
-    SLACKIN["Slack<br/>@mention · buttons"]
+    GRAF["<b>Grafana</b><br/>webhook"]
+    DD["<b>Datadog</b><br/>webhook"]
+    PD["<b>PagerDuty</b><br/>events v2"]
+    GEN["<b>Splunk / generic</b><br/>JSON"]
+    SLACKIN["<b>Slack</b><br/>@mention · buttons"]
+    GRAF ~~~ DD ~~~ PD ~~~ GEN ~~~ SLACKIN
   end
 
-  PORTS["Auth · Governance · Tenancy — PORTS (black box)<br/>webhook signatures · Slack signing · credentials ·<br/>approval tokens · org scoping<br/>v1 stubs: AllowAll / SingleTenant / EnvCredentials"]
-
-  RECV["RECEIVER — no LLM, no writes<br/>normalize to AgentEvent · fingerprint ·<br/>dedupe · coalesce alert storms"]
-
-  QUEUE(["Redis Streams — inbox queue · burst absorption"])
-
-  %% ── Intelligence ───────────────────────────────────────────
-  subgraph INTEL["INTELLIGENCE (LangGraph)"]
-    direction TB
-    ORCH["Orchestrator (supervisor)<br/>intake → retrieve → dispatch →<br/>aggregate Findings → synthesize Conclusion"]
-    REG["Agent Registry — declarative, versioned<br/>prompt · tool allowlist · budget · dispatch triggers"]
-    AGENTS["Specialist sub-agents — parallel · stateless · budgeted<br/>DB Investigator · Metrics Analyst · Log Analyst<br/>Code Investigator · Change Auditor · Precedent Researcher"]
-    ORCH -- "spins up from" --> REG
-    ORCH -- "Assignment → Finding (B11)" --> AGENTS
+  %% ═══ LAYER 2 · INGESTION ════════════════════════════════════
+  subgraph L2["  INGESTION — deterministic, no LLM, no writes  "]
+    direction LR
+    RECV["<b>RECEIVER</b><br/>normalize to AgentEvent · fingerprint<br/>dedupe · coalesce alert storms"]
+    QUEUE(["<b>Redis Streams</b><br/>inbox queue · burst absorption"])
+    RECV -- "B2 AgentEvent" --> QUEUE
   end
 
-  %% ── Knowledge ──────────────────────────────────────────────
-  subgraph KNOW["RAG / KNOWLEDGE"]
+  PORTS["<b>AUTH · GOVERNANCE · TENANCY</b> — ports (black box)<br/>webhook signatures · Slack signing · credentials<br/>approval tokens · org scoping<br/>v1 stubs: AllowAll / SingleTenant / EnvCredentials"]
+
+  %% ═══ LAYER 3 · INTELLIGENCE ═════════════════════════════════
+  subgraph L3["  INTELLIGENCE — LangGraph · the only layer with an LLM  "]
+    direction LR
+    REG["<b>AGENT REGISTRY</b><br/>declarative · versioned<br/>prompt · tool allowlist<br/>budget · dispatch triggers"]
+    ORCH["<b>ORCHESTRATOR</b> (supervisor)<br/>intake → retrieve → dispatch<br/>→ aggregate Findings<br/>→ synthesize Conclusion"]
+    AGENTS["<b>SPECIALIST SUB-AGENTS</b> — parallel · stateless · budgeted<br/>DB Investigator · Metrics Analyst · Log Analyst<br/>Code Investigator · Change Auditor · Precedent Researcher"]
+    REG -- "spins up" --> ORCH
+    ORCH -- "B11 Assignment → Finding" --> AGENTS
+  end
+
+  GOVSCHED["<b>GOVERNOR + SCHEDULER</b> (cross-cutting)<br/>iteration & token budgets · circuit breakers<br/>storm brake · registry sync · distiller runs<br/>scheduled investigations"]
+
+  %% ═══ LAYER 4 · KNOWLEDGE & TOOLS ════════════════════════════
+  subgraph L4K["  RAG / KNOWLEDGE  "]
     direction TB
-    FACADE["retrieve(ctx) → KnowledgeBundle<br/>GraphRAG: vectors find entry points, graph expands"]
-    MODS["① Vector store (pgvector) — episodic memory<br/>② Knowledge graph (Postgres edges) — caused_by · fixed_by · applies_to<br/>③ Recipe registry (YAML) — interpret → freeze → synthesize<br/>④ Federated (MCP) — mcp-code-explorer · Curlix asset graph"]
+    FACADE["<b>KNOWLEDGE FAÇADE</b><br/>retrieve(ctx) → KnowledgeBundle<br/>GraphRAG: vectors find entry points,<br/>graph expands"]
+    MODS["<b>FOUR MODALITIES</b><br/>① Vector store (pgvector) — episodic memory<br/>② Knowledge graph (Postgres edges) — caused_by · fixed_by · applies_to<br/>③ Recipe registry (YAML) — interpret → freeze → synthesize<br/>④ Federated (MCP) — code explorer · platform asset graph"]
     FACADE --- MODS
   end
 
-  %% ── Tool gateway ───────────────────────────────────────────
-  subgraph HUB["MCP HUB — governed tool gateway (tiers from OUR manifest)"]
-    direction LR
-    READT["Read tier<br/>skills · queries · logs · code<br/>agents call freely"]
-    PRIVT["Privileged tier<br/>destructive ops: suspend graph → approval →<br/>single-use token (minted by Auth port)"]
+  subgraph L4H["  MCP HUB — governed tool gateway  "]
+    direction TB
+    READT["<b>READ TIER</b><br/>skills · queries · logs · code<br/>agents call freely"]
+    PRIVT["<b>PRIVILEGED TIER</b><br/>destructive ops: suspend graph<br/>→ approval → single-use token<br/>(minted by Auth port)"]
+    READT ~~~ PRIVT
   end
 
-  APPROVE["Slack approval UI<br/>approve / deny buttons"]
+  APPROVE["<b>Slack approval UI</b><br/>approve / deny buttons"]
 
-  CURLIX["CURLIX PLATFORM (external)<br/>skills execution · inventory / asset graph ·<br/>findings write-back · existing MCP server"]
+  %% ═══ LAYER 5 · EXECUTION & LEARNING ═════════════════════════
+  subgraph L5["  EXECUTION & LEARNING  "]
+    direction LR
+    ACT["<b>ACTIONS</b> — deterministic, no LLM<br/>fingerprint rules: create-vs-update<br/>idempotent → Linear tickets<br/>Slack receipts · platform findings"]
+    FR["<b>FLIGHT RECORDER</b> — append-only audit spine (Postgres)<br/>events · node transitions · every LLM + tool call<br/>gates · actions · powers replay/eval harness<br/>+ per-agent hit-rate stats"]
+    DIST["<b>DISTILLER</b> — one-way,<br/>human gate on recipes<br/>case embeddings ① · graph edges ②<br/>draft recipes ③"]
+    ACT ~~~ FR
+    FR -- "B9" --> DIST
+  end
 
-  ACT["ACTIONS — deterministic, no LLM<br/>fingerprint rules: create-vs-update · idempotent<br/>→ Linear tickets · Slack receipts · Curlix findings"]
+  CURLIX["<b>CURLIX PLATFORM</b> (external)<br/>skills execution · inventory / asset graph<br/>findings write-back · existing MCP server"]
 
-  GOVSCHED["GOVERNOR + SCHEDULER (cross-cutting)<br/>iteration & token budgets · circuit breakers · storm brake<br/>registry sync · distiller runs · scheduled investigations"]
-
-  FR["FLIGHT RECORDER — append-only audit spine (Postgres)<br/>events · node transitions · every LLM + tool call · gates · actions<br/>powers replay/eval harness + per-agent hit-rate stats"]
-
-  DIST["Distiller — one-way, human gate on recipes<br/>case embeddings ① · graph edges ② · draft recipes ③"]
-
-  %% ── Primary path ───────────────────────────────────────────
-  SRC == "B1 verified inbound" ==> RECV
-  RECV == "B2 AgentEvent" ==> QUEUE
+  %% ═══ Primary path (bold) ════════════════════════════════════
+  L1 == "B1 verified inbound" ==> RECV
   QUEUE ==> ORCH
   ORCH == "B6 Conclusion — determinism boundary" ==> ACT
 
-  %% ── Secondary paths ────────────────────────────────────────
+  %% ═══ Secondary paths ════════════════════════════════════════
   PORTS -.-> RECV
   ORCH -- "B3 retrieve → KnowledgeBundle" --> FACADE
   AGENTS -- "B4 tool calls" --> READT
@@ -79,20 +87,21 @@ flowchart TB
   PRIVT -- "B5 approval round-trip" --> APPROVE
   READT -- "B10 API contract" --> CURLIX
   MODS -. "federation" .-> CURLIX
-  INTEL -- "B8 AuditEvent — every block, async" --> FR
-  FR -- "B9" --> DIST
-  DIST --> MODS
-  GOVSCHED -.- INTEL
+  L3 -- "B8 AuditEvent — every block, async" --> FR
+  DIST -- "distills into" --> MODS
+  GOVSCHED -.- L3
 
-  %% ── Styling ────────────────────────────────────────────────
+  %% ═══ Styling ════════════════════════════════════════════════
   classDef core fill:#e3f3f6,stroke:#0b7285,color:#0b3a42;
   classDef port fill:#f1f3f5,stroke:#5b6b7a,stroke-dasharray:5 4,color:#3d4852;
   classDef gate fill:#fbf0da,stroke:#9a6700,color:#5c3d00;
   classDef learn fill:#efeafb,stroke:#6741b8,color:#2f1e5c;
   classDef queue fill:#f8f9fa,stroke:#868e96,color:#343a40;
+  classDef layer fill:#fffdf5,stroke:#b8a800,color:#5c5400;
 
   class RECV,ORCH,REG,AGENTS,READT,ACT,GOVSCHED core;
   class PORTS,CURLIX,GRAF,DD,PD,GEN,SLACKIN,APPROVE port;
   class PRIVT gate;
   class FACADE,MODS,FR,DIST learn;
   class QUEUE queue;
+  class L1,L2,L3,L4K,L4H,L5 layer;
