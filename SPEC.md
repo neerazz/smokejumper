@@ -6,7 +6,8 @@
 > component behavior, flows, data, and verifiable milestones.
 >
 > **Status: reviewed 2026-07-10** — the five open decisions were resolved by Neeraj
-> (see §10); no unresolved `⚑` remain.
+> (see §10); no unresolved `⚑` remain. Every significant decision is recorded with its
+> alternatives and accepted trade-offs in [docs/adr/](docs/adr/README.md).
 
 ## 1. Purpose & scope
 

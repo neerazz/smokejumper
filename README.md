@@ -4,7 +4,7 @@
 
 Smokejumpers are the elite firefighters who jump in the moment a wildfire alert lands, size it up, and contain it before it spreads. This project does the same for production incidents: an alert fires, Smokejumper drops in, dispatches specialist investigator agents in parallel, and reports back in Slack with a grounded conclusion and full receipts.
 
-> **Status: design phase.** The v1 container architecture (below) and the level-2 build spec ([SPEC.md](SPEC.md) — contracts, component behavior, flows, milestones) are drafted; implementation has not started. Watch/star if you want to follow along.
+> **Status: design phase.** The v1 container architecture (below), the level-2 build spec ([SPEC.md](SPEC.md) — contracts, component behavior, flows, milestones), and the decision records ([docs/adr/](docs/adr/README.md) — every major choice with alternatives and trade-offs) are drafted; implementation has not started. Watch/star if you want to follow along.
 
 ## Architecture (v1)
 
