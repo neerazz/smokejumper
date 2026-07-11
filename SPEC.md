@@ -5,8 +5,8 @@
 > [architecture/](architecture/README.md) — this document refines it into contracts,
 > component behavior, flows, data, and verifiable milestones.
 >
-> **Status: DRAFT — pending review.** Open decisions are marked `⚑ OPEN` with a default;
-> if unresolved at build time, the default applies.
+> **Status: reviewed 2026-07-10** — the five open decisions were resolved by Neeraj
+> (see §10); no unresolved `⚑` remain.
 
 ## 1. Purpose & scope
 
@@ -42,7 +42,7 @@ horizontal scaling, UI beyond Slack.
 | Store | **One Postgres 16** + pgvector | unified store consensus: vectors + graph edges + recorder in one DB; no separate graph DB |
 | Knowledge graph | Postgres edge tables, bi-temporal (valid_at / recorded_at, Graphiti-style) | facts change; never lose what we believed at decision time |
 | Memory extraction | LangMem-style extraction in Distiller; **distill, don't append** | append-everything degrades retrieval |
-| LLM | `⚑ OPEN` — default: Anthropic API (claude-sonnet-5 workers, claude-opus-4-8 synthesis), provider-abstracted via a `ModelProvider` port | model-agnostic seam is mandatory; default is simplest to run OSS |
+| LLM | **Swappable by config, zero code**: `ModelProvider` port over LangChain `init_chat_model` provider strings (`anthropic:*`, `openai:*`, `google_genai:*`, `ollama:*`, …), configured **per role** (`worker`, `synthesis`) in `config.yaml`/env. Ships with Anthropic defaults (claude-sonnet-5 workers, claude-opus-4-8 synthesis); switching to Codex/GPT, Gemini, or a local model is an edit to two config lines | hard requirement: any provider, swappable at any time; no provider import outside `ports/model.py` |
 | Packaging | `uv` + `pyproject.toml`, src layout, package name `smokejumper` | PyPI name is free |
 | Quality gates | ruff + pyright + pytest; CI = GitHub Actions | |
 
@@ -102,8 +102,13 @@ with every payload.
 ## 5. Component specifications
 
 ### 5.1 Receiver — deterministic, no LLM, no writes
-- One FastAPI route per source + `/slack/events`. Verify via Auth port (B1) → normalize to
-  AgentEvent (B2) → fingerprint → dedupe window (default 15 min: same fingerprint increments
+- One FastAPI route per alert source (Grafana/Datadog/PagerDuty/generic). **Slack runs in
+  Socket Mode via `slack-bolt`** (a listener task next to FastAPI — no public URL needed;
+  inbound events and outbound Web API calls use the same bot). Requires a Slack app Neeraj
+  creates once: bot token (`xoxb-`) + app token (`xapp-`, `connections:write`), bot scopes
+  `app_mentions:read`, `chat:write`, `channels:history`, `reactions:write` + interactivity
+  enabled for the approve/deny buttons.
+- Verify via Auth port (B1) → normalize to AgentEvent (B2) → fingerprint → dedupe window (default 15 min: same fingerprint increments
   `dedupe_count` on the open event instead of emitting a new one) → coalesce storms (>20
   distinct fingerprints from one source in 5 min ⇒ emit ONE `storm` AgentEvent that wraps the
   set; per-alert events are recorded but not enqueued).
@@ -143,8 +148,15 @@ with every payload.
 ### 5.6 Actions — deterministic, no LLM
 - Input: Conclusion (B6). Fingerprint rules: open ticket exists for fingerprint ⇒ update
   (comment + status), else create. Idempotency key = `(fingerprint, run_id)` — retries never
-  double-post. Outputs: Linear ticket, Slack receipt (thread on the alerting channel message
-  when Slack-sourced), platform findings write-back (stub).
+  double-post. Outputs: ticket via TicketingPort, Slack receipt (thread on the alerting
+  channel message when Slack-sourced), platform findings write-back (stub).
+- **TicketingPort — extensible base adapter** in `ports/ticketing.py`:
+  `create(TicketDraft) → TicketRef` · `update(TicketRef, TicketUpdate)` ·
+  `find_open_by_fingerprint(fp) → TicketRef | None` · `close(TicketRef, resolution)`.
+  `TicketDraft/Update/Ref` are provider-neutral contract models; adapters map them to the
+  provider. v1 ships the **Linear** adapter; GitHub Issues, Jira, and Asana are later
+  adapters behind the same interface — selected in config (`ticketing.provider: linear`).
+  Adapter conformance is enforced by a shared contract-test suite every adapter must pass.
 
 ### 5.7 Governor + Scheduler
 - Per-run caps: max 12 graph iterations, 200k tokens, 10 min wall clock — breach ⇒ synthesize
@@ -154,10 +166,22 @@ with every payload.
 - Scheduler (APScheduler): registry sync, scheduled investigations from recipes, approval-expiry sweeper.
 
 ### 5.8 Flight Recorder + replay harness
-- Sync-API/async-write recorder; failure to record is itself recorded (fallback file sink).
+- **Sink = append-only JSONL files in the log directory** (`logs/` by default,
+  `SMOKEJUMPER_LOG_DIR` to override): one file per UTC day with a timestamp suffix,
+  `audit-<YYYY-MM-DD>T<HHMMSS>.jsonl` (new suffix per process start, so restarts never
+  interleave). One AuditEvent per line. No retention policy — files accumulate; rotation is
+  the operator's business.
+- **Streamable:** each event is also emitted on an in-process async broadcast channel;
+  `smokejumper logs --follow` tails it, and the same channel is the seam for a future
+  network stream (e.g. SSE) — write path stays file-first either way.
+- Postgres keeps only a lightweight `runs` index (run_id → fingerprint, status, log file +
+  byte offsets) so replay can locate a run's events without scanning every file.
+- Failure to write the file sink is itself recorded to stderr and increments a health
+  counter surfaced by the Governor.
 - Replay harness: `smokejumper replay <run_id>` re-executes a recorded run with the model
   mocked from recorded outputs (deterministic) or live (eval mode); `smokejumper eval` runs
-  `evals/*.json` cases and reports per-agent hit-rate vs recorded ground truth.
+  `evals/*.json` cases and reports per-agent hit-rate vs recorded ground truth. Both read
+  the JSONL sink via the `runs` index.
 
 ### 5.9 Distiller (manual in v1)
 - `smokejumper distill <run_id|--since>`: closed cases → case embedding (①), proposed graph
@@ -196,8 +220,9 @@ no ticket unless asked.
 
 ## 7. Data model (Postgres, one database)
 
-`events` (B2, quarantine flag) · `runs` (fingerprint, status, budgets) · `audit_events` (B8,
-partitioned monthly) · `approvals` (B5) · `tickets` (fingerprint↔Linear id map) ·
+`events` (B2, quarantine flag) · `runs` (fingerprint, status, budgets, audit-log file +
+offsets — the index into the JSONL audit sink; B8 events themselves live in `logs/`, not
+Postgres) · `approvals` (B5) · `tickets` (fingerprint ↔ TicketRef map, provider-tagged) ·
 `kg_nodes` / `kg_edges` (bi-temporal) · `episodes` (case embeddings, pgvector) ·
 `checkpoints` (LangGraph) · `schema_migrations` (alembic).
 
@@ -225,10 +250,17 @@ partitioned monthly) · `approvals` (B5) · `tickets` (fingerprint↔Linear id m
 
 Build order is strict; each milestone lands as a reviewed PR.
 
-## 10. Open decisions `⚑`
+## 10. Decisions log (resolved 2026-07-10, by Neeraj)
 
-1. **LLM default** — Anthropic API direct (default) vs Bedrock. Affects quickstart env vars only (ModelProvider port isolates it).
-2. **v1 specialist subset** — default Metrics/Log/Change-Auditor. Swap any of the six.
-3. **Slack transport** — Socket Mode (default: no public URL needed for dev) vs Events API HTTP.
-4. **Linear vs GitHub Issues for OSS demo** — default Linear (matches design); GitHub Issues adapter would demo better for OSS adopters.
-5. **Data retention** — default: audit_events 90 days, episodes forever.
+1. **LLM** — provider-agnostic and swappable by config at any time (Anthropic, OpenAI/Codex,
+   Gemini, local, anything). No provider code outside the ModelProvider port. Anthropic is
+   only the shipped default config.
+2. **v1 specialist subset** — default stands: Metrics Analyst, Log Analyst, Change Auditor
+   enabled; other three registered but disabled.
+3. **Slack transport** — Socket Mode (easiest two-way: Slack calls us, we call Slack, no
+   public URL). Neeraj creates the Slack app; required scopes listed in §5.1.
+4. **Ticketing** — extensible `TicketingPort` base from day one; Linear is the first adapter,
+   GitHub Issues / Jira / Asana follow behind the same interface (§5.6).
+5. **Audit log retention** — none enforced. Recorder writes dated, timestamp-suffixed JSONL
+   files to the log directory, streamable via a broadcast channel; Postgres holds only the
+   run index (§5.8).
