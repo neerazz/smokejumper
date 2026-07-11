@@ -37,7 +37,8 @@ horizontal scaling, UI beyond Slack.
 |---|---|---|
 | Language | Python 3.12+ | ecosystem; team lane |
 | API/webhooks | FastAPI + uvicorn | standard, async |
-| Agent runtime | LangGraph (supervisor pattern) | durability via Postgres checkpointer is enough for v1; Temporal deferred |
+| Agent runtime | LangGraph + `langgraph-checkpoint-postgres` 3.x (**must set `LANGGRAPH_STRICT_MSGPACK=true`** — CVE-2026-28277 deserialization hardening). Supervisor topology is **copied as a pattern** (tool-calling supervisor per LangChain's guide), NOT a dependency on `langgraph-supervisor` — its maintainers steer users away from it | durability via Postgres checkpointer is enough for v1; Temporal deferred |
+| MCP layer | FastMCP 3.x (Apache-2.0, **version-pinned**) for client + own servers + governance middleware; `langchain-mcp-adapters` loads MCP tools into LangGraph. Official `mcp` SDK v2 is beta — do not build on it yet | verified 2026-07-10; see §2b |
 | Queue | Redis Streams (consumer groups) | burst absorption, replayable inbox |
 | Store | **One Postgres 16** + pgvector | unified store consensus: vectors + graph edges + recorder in one DB; no separate graph DB |
 | Knowledge graph | Postgres edge tables, bi-temporal (valid_at / recorded_at, Graphiti-style) | facts change; never lose what we believed at decision time |
@@ -45,6 +46,29 @@ horizontal scaling, UI beyond Slack.
 | LLM | **Swappable by config, zero code**: `ModelProvider` port over LangChain `init_chat_model` provider strings (`anthropic:*`, `openai:*`, `google_genai:*`, `ollama:*`, …), configured **per role** (`worker`, `synthesis`) in `config.yaml`/env. Ships with Anthropic defaults (claude-sonnet-5 workers, claude-opus-4-8 synthesis); switching to Codex/GPT, Gemini, or a local model is an edit to two config lines | hard requirement: any provider, swappable at any time; no provider import outside `ports/model.py` |
 | Packaging | `uv` + `pyproject.toml`, src layout, package name `smokejumper` | PyPI name is free |
 | Quality gates | ruff + pyright + pytest; CI = GitHub Actions | |
+
+## 2b. OSS reuse map (build-vs-buy, deep-researched & source-verified 2026-07-10)
+
+Governing rule: **never hand-write what a maintained library already does; never let a
+third-party library be the sole owner of a security boundary or the audit record.**
+Full evidence trail: `research_smokejumper-oss-reuse` (journal, 2026-07-10) — 4 research
+lanes + adversarial verification (13/13 claims verified at primary sources).
+
+| Component | ADOPT | HAND-WRITE (verified: no OSS covers it) |
+|---|---|---|
+| Slack channel | `slack-bolt` (MIT, Socket Mode first-class) | handlers only |
+| Telegram channel (post-v1) | `aiogram` (MIT, async) — chosen over python-telegram-bot (LGPL) | adapter glue |
+| Email channel (post-v1) | `imap-tools`/`IMAPClient` (IDLE) + `aiosmtplib` | OAuth2 token handling |
+| Alert intake | — none exists: no pip-installable Grafana/Datadog/PagerDuty normalizer; Grafana OnCall archived 2026; Keep is a platform (MIT core), not a library | per-source normalizers (**seed from Alerta's Apache-2.0 `alerta/webhooks/` parsers**) + per-source HMAC verification |
+| Queue | `redis-py` Streams + consumer groups (sufficient; taskiq only if we later want retry/DI abstractions; arq/celery/streaq rejected) | fingerprint dedupe window |
+| Loop guards | LangChain v1 `ModelCallLimitMiddleware` + `ToolCallLimitMiddleware` (call-count caps) | token/$ spend ledger + RPM/TPM throttle (no OSS equivalent in Python) |
+| Memory/GraphRAG | — Graphiti rejected (Neo4j/FalkorDB only — violates one-Postgres). Cognee 1.x verified to run GraphRAG on one Postgres with opt-in bi-temporal, but red-team verdict: don't adopt at HEAD for an audit-critical tool | bi-temporal edge tables on Postgres+pgvector using **Graphiti's data model as blueprint**, behind a `MemoryPort` (Cognee/LightRAG become optional adapters after a pinned-version spike) |
+| MCP governance | FastMCP middleware `on_call_tool` hook (block via ToolError) — the embeddable tiering seam | tool→tier registry + policy middleware + **redundant enforcement in our tool executor** (security boundary never single-sourced in a third-party hook) |
+| Approvals | LangGraph `interrupt()` + PostgresSaver (durable suspend/resume); slack-bolt Block Kit. **HumanLayer rejected — repo self-declares deprecated** | single-use approval tokens, 30-min expiry, token→(thread_id, tool_call) binding |
+| Audit/replay | LangGraph time-travel (`get_state_history`, fork) as replay backbone | JSONL recorder (source of truth) + model-response recording for deterministic replay |
+| Eval | `openevals` (MIT) or `deepeval` (Apache-2.0, pytest-native) | golden cases |
+| Observability UI | **deferred to v2** (Opik = cleanest license; Langfuse = 6 services incl. ClickHouse; Phoenix = ELv2). Optional now: OpenLLMetry library-only OTel spans | — |
+| Ticketing SDKs | `githubkit` (MIT, async — over PyGithub: LGPL + "seeking maintainers") · `atlassian-python-api` · official `asana` | TicketingPort (verified: no OSS unifier covers Linear+GitHub+Jira+Asana — ticketutil has the wrong provider set) + **Linear adapter via direct GraphQL** (no official Python SDK; community `linear-api` stale) |
 
 ## 3. Repository layout
 
@@ -102,6 +126,14 @@ with every payload.
 ## 5. Component specifications
 
 ### 5.1 Receiver — deterministic, no LLM, no writes
+- All inbound surfaces implement a **`ChannelAdapter` port** (`listen()` → yields raw
+  inbound, `send(receipt)`); **v1 ships exactly one chat adapter: Slack.** Telegram
+  (`aiogram`) and email (`imap-tools`/`IMAPClient`) are documented adapter stubs behind
+  the same port — designed for, not built (red-team: building them in v1 is scope creep).
+- Per-source alert normalizers are hand-written (verified: no OSS library does this),
+  **seeded from Alerta's Apache-2.0 `alerta/webhooks/` parsers** (grafana, prometheus,
+  pagerduty, cloudwatch, …) with attribution. Signature verification is per-source HMAC,
+  also hand-written (Alertmanager sends none — allowlist by network instead).
 - One FastAPI route per alert source (Grafana/Datadog/PagerDuty/generic). **Slack runs in
   Socket Mode via `slack-bolt`** (a listener task next to FastAPI — no public URL needed;
   inbound events and outbound Web API calls use the same bot). Requires a Slack app Neeraj
@@ -138,12 +170,26 @@ with every payload.
   sources queried only if local results < threshold.
 - Bi-temporal: every node/edge has `valid_at` + `recorded_at`; retrieval defaults to
   "currently valid" but replay can query "as believed at time T".
+- **Implementation stance (researched):** the store is hand-rolled Postgres tables using
+  **Graphiti's bi-temporal data model as the blueprint** (entity/edge with
+  valid_at/invalid_at + created_at/expired_at; pgvector embeddings) — Graphiti itself is
+  rejected (requires Neo4j/FalkorDB; violates one-Postgres). Everything sits behind a
+  `MemoryPort`, so Cognee (verified: single-Postgres GraphRAG, opt-in temporal mode) or
+  LightRAG can replace the hand-rolled store later via a pinned-version spike without
+  touching callers.
 
 ### 5.5 MCP Hub
 - Manifest `hub/manifest.yaml` assigns every tool a tier. v1 read tools: platform asset query
   (stub), log search, metric query, Linear read, recipe read. **Privileged tier ships EMPTY.**
   The gating machinery (suspend → B5 → token → execute) is built and tested against a
   `demo_destructive_noop` tool enabled only in tests.
+- **Implementation stance (researched):** built on FastMCP 3.x (pinned) — its
+  `on_call_tool(context, call_next)` middleware reads the tier registry and blocks/gates by
+  raising `ToolError`; `langchain-mcp-adapters` exposes the governed toolset to LangGraph.
+  Dedicated MCP gateways (IBM ContextForge, Lasso, mcp-guardian) were evaluated and rejected
+  for v1 — all are standalone proxy services, not embeddable libraries. **Defense in depth:**
+  tier enforcement is duplicated in our tool executor so the security boundary never lives
+  solely in third-party middleware.
 
 ### 5.6 Actions — deterministic, no LLM
 - Input: Conclusion (B6). Fingerprint rules: open ticket exists for fingerprint ⇒ update
@@ -160,7 +206,10 @@ with every payload.
 
 ### 5.7 Governor + Scheduler
 - Per-run caps: max 12 graph iterations, 200k tokens, 10 min wall clock — breach ⇒ synthesize
-  `inconclusive` Conclusion with partial findings (never silent death).
+  `inconclusive` Conclusion with partial findings (never silent death). Call-COUNT caps reuse
+  LangChain v1 `ModelCallLimitMiddleware`/`ToolCallLimitMiddleware`; the token/$ spend ledger
+  (from `usage_metadata` into Postgres) and RPM/TPM throttle are hand-written — verified no
+  Python OSS equivalent exists.
 - Circuit breakers: 3 consecutive provider failures ⇒ pause consumption 60s. Storm brake:
   queue depth > 25 ⇒ only `critical|high` dequeued.
 - Scheduler (APScheduler): registry sync, scheduled investigations from recipes, approval-expiry sweeper.
@@ -264,3 +313,19 @@ Build order is strict; each milestone lands as a reviewed PR.
 5. **Audit log retention** — none enforced. Recorder writes dated, timestamp-suffixed JSONL
    files to the log directory, streamable via a broadcast channel; Postgres holds only the
    run index (§5.8).
+
+Added after the OSS-reuse deep research (2026-07-10, four verified lanes + adversarial pass —
+see §2b):
+
+6. **Reuse over reinvent** — adopt the §2b libraries; hand-write only what was verified to
+   have no maintained OSS equivalent (alert normalizers, approval tokens, spend ledger,
+   TicketingPort, bi-temporal store).
+7. **Memory** — hand-rolled bi-temporal Postgres store behind `MemoryPort`, Graphiti's data
+   model as blueprint; Cognee/LightRAG adoptable later via spike. Graphiti rejected
+   (separate graph DB). HumanLayer rejected (abandoned).
+8. **Channels** — `ChannelAdapter` port; v1 ships Slack only; Telegram (aiogram) and email
+   are designed-for, post-v1.
+9. **Governance defense-in-depth** — FastMCP middleware is the seam, never the sole
+   enforcement; executor re-checks tiers.
+10. **Observability platforms deferred to v2** — JSONL stays the audit source of truth;
+    at most library-only OTel (OpenLLMetry) in v1.
