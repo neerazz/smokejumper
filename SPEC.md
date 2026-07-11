@@ -126,7 +126,7 @@ with every payload.
 - **Agent Registry:** YAML per specialist: `{name, version, prompt, tools[] (allowlist),
   budget{max_tool_calls: 8, max_tokens: 50k}, dispatch{triggers}}`. Loaded at boot; hot-reload
   on Governor's registry-sync tick. Adding an agent is config, not code.
-- **v1 specialists (3):** `⚑ OPEN` — default subset: Metrics Analyst, Log Analyst, Change
+- **v1 specialists (3):** Metrics Analyst, Log Analyst, Change
   Auditor. (DB Investigator, Code Investigator, Precedent Researcher are registry entries
   marked `enabled: false` with prompts stubbed.)
 - Sub-agents are stateless: input = Assignment, output = Finding; no memory between runs.
