@@ -5,8 +5,10 @@
 > [architecture/](architecture/README.md) — this document refines it into contracts,
 > component behavior, flows, data, and verifiable milestones.
 >
-> **Status: reviewed 2026-07-10** — the five open decisions were resolved by Neeraj
-> (see §10); no unresolved `⚑` remain. Every significant decision is recorded with its
+> **Status: reviewed 2026-07-10; architecture updated 2026-07-25** — the five open decisions
+> were resolved by Neeraj (see §10); no unresolved `⚑` remain. The 2026-07-25 pass added the
+> local observability stack (§2c), per-environment configuration (§2d), and consolidated MCP
+> into one domain (§5.5) — decisions 11–13. Every significant decision is recorded with its
 > alternatives and accepted trade-offs in [docs/adr/](docs/adr/README.md).
 
 ## 1. Purpose & scope
@@ -71,32 +73,223 @@ lanes + adversarial verification (13/13 claims verified at primary sources).
 | Observability UI | **deferred to v2** (Opik = cleanest license; Langfuse = 6 services incl. ClickHouse; Phoenix = ELv2). Optional now: OpenLLMetry library-only OTel spans | — |
 | Ticketing SDKs | `githubkit` (MIT, async — over PyGithub: LGPL + "seeking maintainers") · `atlassian-python-api` · official `asana` | TicketingPort (verified: no OSS unifier covers Linear+GitHub+Jira+Asana — ticketutil has the wrong provider set) + **Linear adapter via direct GraphQL** (no official Python SDK; community `linear-api` stale) |
 
+## 2c. Local observability stack (`local` environment only, via compose profiles)
+
+v1 must be verifiable on a laptop, so the alert sources and tool backends the system talks to
+in production need runnable local equivalents. **Not all of them can have one:** Datadog and
+PagerDuty are SaaS — there is no local Datadog, and having their cloud webhook back to a
+laptop would need a public tunnel. Those two are exercised by **replaying recorded payloads**
+at the Receiver, which is precisely what the normalizers and per-source HMAC verification
+need tested anyway.
+
+| Purpose | Service | Profile | Notes |
+|---|---|---|---|
+| Core runtime | postgres+pgvector · redis · app | *(default)* | `docker compose up` — one-command onboarding unchanged |
+| Alert source | prometheus + alertmanager | `lab` | Alertmanager sends no HMAC ⇒ network allowlist (§5.1) |
+| Alert source + dashboards | grafana (OSS) | `lab` | Grafana alerting → Receiver webhook; fully local |
+| Log backend | loki + promtail | `lab` | **chosen over ELK**: ~200MB vs 4GB+ heap; Grafana-native |
+| Fault injection | faultbox | `lab` | sample app that leaks / 500s / stalls on command |
+| SaaS stand-in | replayer | `fixtures` | POSTs recorded Datadog/PagerDuty payloads at the Receiver |
+
+These services fill **two distinct roles**, and the distinction is load-bearing:
+
+1. **Alert sources** fire webhooks at the Receiver (§5.1) — Grafana alerting, Alertmanager.
+2. **Tool backends** answer read-tier tool calls (§5.5): `metric query` → Prometheus,
+   `log search` → Loki. Both tools were previously named with **no backend behind them**;
+   this section is what makes specialist investigation real instead of stubbed.
+
+Compose profiles keep the default `docker compose up` at three services — ADR-0002 banks
+"a docker-compose a newcomer can run in one command" as a benefit, and a 10-service default
+would quietly spend it. Full `lab` profile lands near 1.2GB resident.
+
+These services are **local only**. The same tools point at dev/prod backends via environment
+config (§2d), and the `lab`/`fixtures` profiles are refused outside `SMOKEJUMPER_ENV=local`.
+
+**Why this is more than dev convenience:** a faultbox-injected incident has *known ground
+truth*, so a run's Conclusion can be scored automatically rather than eyeballed. The lab is
+the eval-corpus factory for §8, not a nicety. Note this is unrelated to decision §10.10
+(LLM-trace observability platforms deferred to v2) — that concerns *our* audit record; this
+concerns *the systems Smokejumper observes*.
+
+## 2d. Configuration & environments (local · dev · prod)
+
+**Naming discipline first**, because two different things want the word "profile":
+
+- **Compose profiles** (`lab`, `fixtures` — §2c) select which *services start*.
+- **Environments** (`local`, `dev`, `prod`) select which *values the app uses*.
+
+They are orthogonal and combine freely: `SMOKEJUMPER_ENV=local docker compose --profile lab up`
+is the normal local setup. This spec never calls an environment a "profile".
+
+### Layering
+One typed settings object (pydantic-settings), assembled lowest → highest precedence:
+
+1. code defaults
+2. `config/base.yaml` — env-independent defaults; no endpoints, no secrets
+3. `config/<env>.yaml` — per-environment endpoints and tuning
+4. environment variables — `SMOKEJUMPER__<SECTION>__<KEY>` (double underscore = nesting)
+5. explicit CLI flags
+
+`SMOKEJUMPER_ENV` selects step 3 and defaults to `local`. Boot assembles and validates the
+whole object and **fails fast** on anything missing or malformed — no `os.getenv` scattered
+through the codebase, and no lazily-discovered misconfiguration surfacing at minute nine of
+an incident.
+
+**Secrets never live in YAML.** Config files hold *references*; values arrive as env vars.
+Local reads them from `.env` (git-ignored; `.env.example` committed). dev/prod get them
+injected by the platform's secret manager. `config/` stays diffable and safe to commit.
+
+### What varies by environment
+
+| Concern | local | dev | prod |
+|---|---|---|---|
+| Postgres / Redis | compose service names | managed instance | managed instance |
+| `metric query` backend | `http://prometheus:9090` (`lab`) | dev Prometheus | prod Prometheus |
+| `log search` backend | `http://loki:3100` (`lab`) | dev Loki | prod Loki |
+| Alert sources | `lab` + `fixtures` replay | real webhooks, dev secrets | real webhooks, prod secrets |
+| Model roles (§2) | cheap or local model | cheap model | full-strength |
+| Spend ceiling | tiny | tiny | real, with kill switch |
+| Ticketing (§5.6) | dry-run / fixture | test Linear team | prod Linear team |
+| Slack | dev workspace | dev workspace | real workspace |
+| Federated MCP (§5.5) | stub descriptor | dev endpoint | prod endpoint |
+| Ports (§5.10) | stubs allowed | stubs warn | **stubs forbidden** |
+
+### Environment-gated safety rules (enforced at boot, not documented-and-hoped)
+- **`prod` refuses to start if any port is a stub** (`AllowAll`, `NoopGovernance`,
+  `FixturePlatform`). ADR-0004 accepted the risk that "stubs normalize insecurity if deployed
+  carelessly" and mitigated it with a loud log line — a log line is not a control. Fail closed.
+- **`lab` and `fixtures` compose profiles are refused outside `local`.** The faultbox exists
+  to break things; it must not be reachable from a real environment.
+- **`prod` requires an explicit spend ceiling.** Absent one, boot fails rather than defaulting
+  to unlimited.
+
+### How compose picks it up
+`docker-compose.yml` interpolates `${VAR}` from `.env` and passes `SMOKEJUMPER_ENV` through to
+the app; `docker-compose.override.yml` is auto-loaded for local convenience and git-ignored.
+dev/prod use explicit overlays:
+
+```bash
+SMOKEJUMPER_ENV=local docker compose --profile lab up
+SMOKEJUMPER_ENV=dev   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+```
+
+Compose is a local/dev tool here. If prod runs on anything else (k8s, ECS, a single VM), the
+entire contract is `config/prod.yaml` plus injected env vars — no compose file involved. That
+is the point of keeping environment selection in the settings object rather than in compose.
+
+## 2e. Observability & prompt management
+
+### Observability — `obs` compose profile (ADR-0019)
+Two layers, deliberately separated so the backend is never load-bearing:
+
+1. **Instrumentation is OpenTelemetry** (OpenInference semantic conventions), emitted from
+   inside `ports/model.py` and the MCP gateway — the two places every model call and tool call
+   already funnel through. No instrumentation code in callers.
+2. **The backend is a config value.** Default: **Arize Phoenix**, a single container behind the
+   `obs` profile. **Langfuse** is a supported swap — repoint the OTLP exporter, change no code.
+
+```bash
+docker compose --profile obs up      # + phoenix, OTLP on 4317, UI on 6006
+```
+
+**JSONL stays the audit source of truth** (ADR-0012). The platform is a *read-side consumer*:
+it can be absent, wiped, or replaced with no effect on the audit record or on replay. Nothing
+in the system may depend on a trace being queryable.
+
+Why Phoenix rather than the richer Langfuse: single process vs six services including
+ClickHouse (§2c's footprint argument again), and Phoenix is **eval-first** — its faithfulness,
+hallucination, and retrieval-relevance evaluators sit directly on §8's open question of
+whether a Conclusion was actually grounded. The cost is licensing: Phoenix is **Elastic
+License 2.0 — source-available, not OSI open source**. Do not describe it as open source; an
+adopter whose procurement requires OSI licenses uses the Langfuse swap, which is exactly what
+the OTel seam exists to make cheap. **LangSmith was rejected outright** — proprietary, no
+practical self-host, and it would ship production log content to a third-party cloud.
+
+### Prompt management — `prompts/` in git (ADR-0020)
+Prompts are behavior, so they are versioned artifacts, not configuration strings:
+
+```
+prompts/
+├── supervisor/{plan,synthesize}/v<N>.md
+├── agents/<agent-name>/v<N>.md
+└── CHANGELOG.md
+```
+
+The Agent Registry (§5.3) **references** rather than inlines: `prompt: agents/metrics-analyst@v3`.
+Three rules make this load-bearing:
+
+- **Versions are immutable.** Never edit `v3`; add `v4`. Same discipline as ADRs.
+- **B8 records `prompt_ref` + `prompt_sha256` on every `llm_call`** (§4). Without this a
+  recorded run cannot be attributed to a prompt version, a regression cannot be traced to a
+  prompt change, and replay cannot assert it is running the prompt it recorded.
+- **A prompt change requires an eval run** before merge — the only regression gate that exists
+  for behavior.
+
+A platform prompt playground may be used for experimentation. It is never the store and never
+serves prompts at runtime: putting behavior-defining artifacts in a third-party database is
+the same mistake ADR-0012 refused for the audit log.
+
 ## 3. Repository layout
 
 ```
 smokejumper/
 ├── pyproject.toml
-├── docker-compose.yml          # postgres+pgvector, redis, app
+├── docker-compose.yml          # default: postgres+pgvector, redis, app
+│                               # profiles: lab (§2c), fixtures (§2c)
+├── docker-compose.override.yml  # auto-loaded local tweaks — git-ignored
+├── docker-compose.dev.yml      # explicit overlay: -f base -f dev
+├── .env.example                # local secret template (real .env is git-ignored)
+├── config/                     # environment values (§2d) — secrets by reference only
+│   ├── base.yaml               #   env-independent defaults
+│   ├── local.yaml              #   compose service names, stubs allowed
+│   ├── dev.yaml                #   dev endpoints, cheap models, tiny ceiling
+│   └── prod.yaml               #   real endpoints; stubs forbidden at boot
+├── compose/                    # provisioning for the lab profile — config, not code
+│   ├── prometheus/             # scrape config + alert rules that fire at the Receiver
+│   ├── alertmanager/           # webhook receiver config
+│   ├── grafana/                # provisioned datasources + alert rules
+│   ├── loki/                   # log store config
+│   └── faultbox/               # injectable-fault sample app
 ├── src/smokejumper/
 │   ├── contracts/              # B1–B11 pydantic models — THE source of truth
 │   ├── receiver/               # FastAPI app: webhook routes, verify port, normalize, dedupe
 │   ├── queue/                  # Redis Streams producer/consumer
 │   ├── intelligence/           # LangGraph graph, supervisor, registry loader, sub-agent runner
-│   ├── knowledge/              # facade, vector store, graph store, recipes, federated MCP client
-│   ├── hub/                    # MCP tool gateway: manifest, tiers, approval broker
+│   ├── knowledge/              # facade, vector store, graph store, recipes (federates via mcp/)
+│   ├── mcp/                    # THE MCP domain — one client, one governance seam (§5.5)
+│   │   ├── gateway.py          #   single FastMCP client + governance middleware
+│   │   ├── tiers.py            #   tier enforcement + redundant executor check
+│   │   ├── approvals.py        #   approval broker (B5 token lifecycle)
+│   │   ├── manifest.yaml       #   SINGLE tool→tier registry — ours AND federated
+│   │   ├── servers/            #   servers we implement, in-process
+│   │   │   ├── metrics/        #     → Prometheus
+│   │   │   ├── logs/           #     → Loki
+│   │   │   ├── knowledge/      #     → knowledge.search / knowledge.expand
+│   │   │   └── testing/        #     → demo_destructive_noop (ADR-0005)
+│   │   └── federated/          #   external servers we consume, never run
+│   │       ├── loader.py       #     imports remote toolsets through the same gateway
+│   │       └── descriptors/    #     curlix.yaml, … — config, not code
 │   ├── actions/                # deterministic executors: linear, slack receipts, findings
 │   ├── recorder/               # flight recorder writer + replay/eval harness
 │   ├── governor/               # budgets, circuit breakers, storm brake, scheduler
 │   ├── distiller/              # CLI: recorder → embeddings/edges/draft recipes
 │   └── ports/                  # auth/governance/tenancy/model interfaces + v1 stubs
-├── registry/agents/*.yaml      # declarative specialist definitions
-├── recipes/*.yaml              # runbook recipes
+├── registry/agents/*.yaml      # declarative specialist definitions (reference prompts)
+├── prompts/                    # prompt registry (§2e) — immutable versions, git is SoT
+│   ├── supervisor/             #   plan/vN.md, synthesize/vN.md
+│   ├── agents/                 #   <agent-name>/vN.md
+│   └── CHANGELOG.md
+├── recipes/*.yaml              # runbook recipes (procedural memory)
+├── fixtures/webhooks/          # golden per-source payloads (§8) + replayer corpus (§2c)
 ├── tests/                      # unit + contract + replay tests
 └── evals/                      # recorded cases for the replay harness
 ```
 
 Dependency rule: `contracts` imports nothing internal; everything imports `contracts`;
 `intelligence` never imports `actions` (only emits B6); `actions` never imports an LLM client.
+**`mcp` is the only package that speaks MCP** — no other package constructs an MCP client, so
+every tool call (ours or federated) crosses exactly one governance seam; `knowledge`
+federates by calling `mcp`, never by opening its own connection.
 
 ## 4. Boundary contracts (B1–B11)
 
@@ -117,6 +310,8 @@ with every payload.
   `{run_id, fingerprint, status(root_caused|mitigated|inconclusive|needs_human), confidence(0-1), summary_md, findings[], evidence_refs[], proposed_actions[], tokens_spent, wall_ms}`.
   Nothing downstream of B6 may call a model.
 - **B8 · AuditEvent** — `{run_id, seq, ts, actor(block or agent), kind(event|transition|llm_call|tool_call|gate|action), payload, schema_version}`; append-only, async, every block emits.
+  `llm_call` events additionally carry `{prompt_ref, prompt_sha256, model}` (§2e) so a run is
+  attributable to an exact prompt version and replay can assert prompt identity.
 - **B9 · DistillationCandidate** — a closed case bundle from the recorder → Distiller.
 - **B10 · PlatformPort** — external host-platform API (e.g. Curlix): `skills.execute`,
   `assets.query`, `findings.write`. v1 stub: no-op + fixture data.
@@ -156,9 +351,11 @@ with every payload.
   aggregate → synthesize(B6)`, with `approval_wait` as an interrupt node.
 - **Checkpointing:** LangGraph Postgres checkpointer; a run survives process restart; an
   approval interrupt persists until decision/expiry.
-- **Agent Registry:** YAML per specialist: `{name, version, prompt, tools[] (allowlist),
-  budget{max_tool_calls: 8, max_tokens: 50k}, dispatch{triggers}}`. Loaded at boot; hot-reload
-  on Governor's registry-sync tick. Adding an agent is config, not code.
+- **Agent Registry:** YAML per specialist: `{name, version, prompt_ref, tools[] (allowlist),
+  budget{max_tool_calls: 8, max_tokens: 50k}, dispatch{triggers}}`. `prompt_ref` points into the
+  prompt registry (§2e) — e.g. `agents/metrics-analyst@v3` — so prompt text is never inlined
+  here and a behavior change is never buried in a config diff. Loaded at boot; hot-reload on
+  Governor's registry-sync tick. Adding an agent is config, not code.
 - **v1 specialists (3):** Metrics Analyst, Log Analyst, Change
   Auditor. (DB Investigator, Code Investigator, Precedent Researcher are registry entries
   marked `enabled: false` with prompts stubbed.)
@@ -167,8 +364,10 @@ with every payload.
 ### 5.4 Knowledge
 - Façade: `retrieve(ctx: AgentEvent | str, budget) → KnowledgeBundle`. GraphRAG: pgvector
   similarity finds entry nodes → graph expansion (≤2 hops) over edges
-  `caused_by | fixed_by | applies_to` → recipes matched by trigger tags → federated MCP
-  sources queried only if local results < threshold.
+  `caused_by | fixed_by | applies_to` → recipes matched by trigger tags → federated sources
+  queried only if local results < threshold. **Federation goes through the shared MCP gateway**
+  (§5.5) and is tiered like any other tool call — the façade does not own an MCP client, so
+  modality ④ cannot become a second, ungoverned path to an external server.
 - Bi-temporal: every node/edge has `valid_at` + `recorded_at`; retrieval defaults to
   "currently valid" but replay can query "as believed at time T".
 - **Implementation stance (researched):** the store is hand-rolled Postgres tables using
@@ -179,11 +378,28 @@ with every payload.
   LightRAG can replace the hand-rolled store later via a pinned-version spike without
   touching callers.
 
-### 5.5 MCP Hub
-- Manifest `hub/manifest.yaml` assigns every tool a tier. v1 read tools: platform asset query
-  (stub), log search, metric query, Linear read, recipe read. **Privileged tier ships EMPTY.**
-  The gating machinery (suspend → B5 → token → execute) is built and tested against a
-  `demo_destructive_noop` tool enabled only in tests.
+### 5.5 MCP domain — one gateway, one manifest
+All MCP concerns live in `src/smokejumper/mcp/` (§3). It replaces the former `hub/` package
+and absorbs the federated client that previously sat in `knowledge/`. **One client, one
+governance seam, one tier registry** — see ADR-0017.
+
+- **Single tier manifest.** `mcp/manifest.yaml` assigns every tool a tier — servers we run
+  *and* federated ones. Deliberately NOT co-located with each server: a tool's tier must not
+  be declarable next to the tool, or a new server can self-declare `read` on a destructive
+  capability and no reviewer sees the security change. One manifest ⇒ every tier change is a
+  reviewable one-file diff.
+- **v1 read tools, with real backends** (previously named but unbacked):
+  `metric query` → Prometheus · `log search` → Loki (both from the `lab` profile, §2c) ·
+  `knowledge.search` / `knowledge.expand` → the Knowledge façade (§5.4) · `Linear read` ·
+  `recipe read` · `platform asset query` (stub).
+- **Privileged tier ships EMPTY.** Gating machinery (suspend → B5 → token → execute) is built
+  and tested against `mcp/servers/testing/demo_destructive_noop`, enabled only in tests.
+- **Our servers run in-process.** FastMCP supports standalone processes; v1 does not use them
+  — in-process keeps the single-service deployment ADR-0001 treats as decisive. Compose gains
+  services for the *backends* (Prometheus, Loki), never for our servers.
+- **Federation is consumption, not implementation.** `mcp/federated/descriptors/*.yaml`
+  declare external servers (endpoint, auth, tool allowlist); `loader.py` imports their
+  toolsets through the same gateway and the same manifest. Descriptors are config, not code.
 - **Implementation stance (researched):** built on FastMCP 3.x (pinned) — its
   `on_call_tool(context, call_next)` middleware reads the tier registry and blocks/gates by
   raising `ToolError`; `langchain-mcp-adapters` exposes the governed toolset to LangGraph.
@@ -243,6 +459,12 @@ with every payload.
 `ports/`, v1 stubs: `AllowAll`, `NoopGovernance`, `SingleTenant`, `EnvCredentials`,
 `FixturePlatform`. Every stub logs loudly at boot that it is a stub.
 
+**Environment gate (§2d):** stub selection is env-aware and enforced, not advisory —
+`local` allows stubs, `dev` warns, and **`prod` refuses to boot** while any security-relevant
+port is stubbed. A stub that only writes a log line is indistinguishable from a real port to
+everything except a human reading logs, which is exactly the failure ADR-0004 flagged and did
+not close.
+
 ## 6. Sequence flows (level-2)
 
 ### 6.1 Alert triage (happy path)
@@ -253,7 +475,7 @@ Actions: create Linear ticket SMOKE-123 + Slack receipt with evidence links → 
 the full trace → run closed.
 
 ### 6.2 Approval round-trip
-Sub-agent requests privileged tool → hub suspends run (LangGraph interrupt persisted) →
+Sub-agent requests privileged tool → MCP gateway suspends run (LangGraph interrupt persisted) →
 ApprovalRequest → Slack message with Approve/Deny buttons → human approves → Auth port mints
 single-use token → tool executes once → token consumed → run resumes. Deny or 30-min expiry ⇒
 tool result = `denied`, agent must proceed without it.
@@ -282,6 +504,11 @@ Postgres) · `approvals` (B5) · `tickets` (fingerprint ↔ TicketRef map, provi
 - **Component tests:** dedupe/coalesce truth table; fingerprint stability; idempotent actions
   (double-delivery ⇒ one ticket); approval expiry ⇒ deny; budget breach ⇒ inconclusive.
 - **Replay tests:** 5 recorded eval cases run deterministically in CI (mocked model).
+- **Lab end-to-end (`lab` profile, §2c):** faultbox injects a known fault → Prometheus/Grafana
+  alert fires → full run → Conclusion compared against the *injected* ground truth. This is
+  how eval cases get generated instead of hand-authored, and it is the only test in the suite
+  where "was the conclusion correct" is mechanically answerable. Not CI-gated (needs the lab);
+  run before a release.
 - **Acceptance (v1 exit):** docker-compose up + seeded fixtures; firing the three golden
   webhooks yields: 1 ticket with correct create-vs-update behavior, Slack receipt, full
   recorder trace, `smokejumper eval` ≥ 4/5 cases matching expected Conclusion status.
@@ -290,13 +517,13 @@ Postgres) · `approvals` (B5) · `tickets` (fingerprint ↔ TicketRef map, provi
 
 | # | Deliverable | Exit check |
 |---|---|---|
-| M0 | Repo skeleton, contracts, CI, docker-compose, stub ports | `pytest` green; compose boots |
-| M1 | Receiver + queue + recorder core | golden webhooks → normalized events in DB, storm test passes |
+| M0 | Repo skeleton, contracts, CI, docker-compose (default profile), `config/` layering (§2d), stub ports | `pytest` green; compose boots; `SMOKEJUMPER_ENV=prod` fails closed on stub ports |
+| M1 | Receiver + queue + recorder core + `lab`/`fixtures` profiles (§2c) | golden webhooks → normalized events in DB, storm test passes; a real Grafana/Alertmanager alert reaches the queue |
 | M2 | Supervisor + ONE specialist + Actions (ticket+receipt) | end-to-end triage of golden case #1 |
 | M3 | Knowledge façade (vectors+graph+recipes) wired into retrieve | bundle appears in trace; precedent case cited |
 | M4 | Parallel specialists + budgets + Governor | 3 agents in parallel; budget-breach test passes |
-| M5 | Hub tiers + approval round-trip | demo noop tool gated end-to-end in test |
-| M6 | Replay/eval harness + Distiller CLI + docs | acceptance suite green; README quickstart works |
+| M5 | MCP tiers + approval round-trip | demo noop tool gated end-to-end in test; federated descriptor loads through the same manifest |
+| M6 | Replay/eval harness + Distiller CLI + `obs` profile (§2e) + docs | acceptance suite green; README quickstart works; a run's spans land in Phoenix |
 
 Build order is strict; each milestone lands as a reviewed PR.
 
@@ -330,3 +557,28 @@ see §2b):
    enforcement; executor re-checks tiers.
 10. **Observability platforms deferred to v2** — JSONL stays the audit source of truth;
     at most library-only OTel (OpenLLMetry) in v1.
+
+Added 2026-07-25 (architecture update):
+
+11. **Local observability stack in compose profiles** (§2c, ADR-0016) — Prometheus+Alertmanager,
+    Grafana, Loki+Promtail and a faultbox run under a `lab` profile so alert sources and tool
+    backends are real locally; Datadog/PagerDuty are SaaS and get a `fixtures` replayer
+    instead. Loki over ELK on footprint. Default `docker compose up` stays three services.
+12. **One MCP domain** (§5.5, ADR-0017) — `hub/` and the `knowledge/` federated client
+    collapse into `src/smokejumper/mcp/`: one client, one governance seam, one central tier
+    manifest, our servers in-process, federated servers as descriptors. This closes a path
+    where knowledge federation reached an external server without a tier check.
+13. **Layered per-environment config** (§2d, ADR-0018) — `local`/`dev`/`prod` selected by
+    `SMOKEJUMPER_ENV`, layered `base.yaml` → `<env>.yaml` → env vars → flags into one
+    validated settings object; secrets by reference only. Deliberately distinct from compose
+    profiles, which select services rather than values. Prod fails closed on stub ports and on
+    a missing spend ceiling, and the `lab`/`fixtures` profiles are refused outside `local`.
+14. **Observability via an OTel seam** (§2e, ADR-0019) — instrument once with
+    OpenTelemetry/OpenInference inside the model port and MCP gateway; Phoenix is the default
+    backend behind an `obs` profile (single container, eval-first) with Langfuse as a
+    config-only swap. Amends ADR-0012's "no trace UI in v1" while keeping JSONL authoritative.
+    Phoenix is ELv2 — source-available, not OSI. LangSmith rejected: proprietary + data egress.
+15. **Prompts are versioned artifacts in git** (§2e, ADR-0020) — `prompts/` is the source of
+    truth, versions are immutable, the registry references instead of inlining, and every
+    `llm_call` records `prompt_ref` + `prompt_sha256` so regressions are attributable and
+    replay can assert prompt identity. Platform prompt registries rejected as the store.

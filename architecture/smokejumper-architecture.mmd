@@ -7,6 +7,9 @@
 %%   npx -y @mermaid-js/mermaid-cli -i smokejumper-architecture.mmd -o smokejumper-architecture.svg
 %% Styling: teal = core (you build) · dashed grey = black-box port / external ·
 %%          amber = approval-gated · violet = knowledge/learning loop.
+%% Governance invariant (ADR-0017): EVERY tool call — sub-agent or knowledge federation —
+%%   enters through GW. There is deliberately no edge that reaches CURLIX or a backend
+%%   without crossing the gateway first.
 %% B8 (AuditEvent): EVERY core block appends to the Flight Recorder async;
 %%   drawn once from the Intelligence layer to keep the layout readable.
 
@@ -15,9 +18,9 @@ flowchart TB
   %% ═══ LAYER 1 · SOURCES ══════════════════════════════════════
   subgraph L1["  ALERT & CHAT SOURCES  "]
     direction LR
-    GRAF["<b>Grafana</b><br/>webhook"]
-    DD["<b>Datadog</b><br/>webhook"]
-    PD["<b>PagerDuty</b><br/>events v2"]
+    GRAF["<b>Grafana</b> · <b>Alertmanager</b><br/>webhook — local in <i>lab</i> profile"]
+    DD["<b>Datadog</b><br/>webhook — SaaS, <i>fixtures</i> replay"]
+    PD["<b>PagerDuty</b><br/>events v2 — SaaS, <i>fixtures</i> replay"]
     GEN["<b>Splunk / generic</b><br/>JSON"]
     SLACKIN["<b>Slack</b><br/>@mention · buttons"]
     GRAF ~~~ DD ~~~ PD ~~~ GEN ~~~ SLACKIN
@@ -49,16 +52,20 @@ flowchart TB
   subgraph L4K["  RAG / KNOWLEDGE  "]
     direction TB
     FACADE["<b>KNOWLEDGE FAÇADE</b><br/>retrieve(ctx) → KnowledgeBundle<br/>GraphRAG: vectors find entry points,<br/>graph expands"]
-    MODS["<b>FOUR MODALITIES</b><br/>① Vector store (pgvector) — episodic memory<br/>② Knowledge graph (Postgres edges) — caused_by · fixed_by · applies_to<br/>③ Recipe registry (YAML) — interpret → freeze → synthesize<br/>④ Federated (MCP) — code explorer · platform asset graph"]
+    MODS["<b>FOUR MODALITIES</b><br/>① Vector store (pgvector) — episodic memory<br/>② Knowledge graph (Postgres edges) — caused_by · fixed_by · applies_to<br/>③ Recipe registry (YAML) — interpret → freeze → synthesize<br/>④ Federated — via the MCP gateway, never a second client"]
     FACADE --- MODS
   end
 
-  subgraph L4H["  MCP HUB — governed tool gateway  "]
+  subgraph L4H["  MCP DOMAIN — one gateway · one tier manifest (ADR-0017)  "]
     direction TB
-    READT["<b>READ TIER</b><br/>skills · queries · logs · code<br/>agents call freely"]
+    GW["<b>GATEWAY</b> — the only MCP client<br/>FastMCP middleware · central manifest.yaml<br/>+ redundant executor check"]
+    READT["<b>READ TIER</b><br/>metric query · log search · knowledge.search<br/>Linear read · recipe read · asset query"]
     PRIVT["<b>PRIVILEGED TIER</b><br/>destructive ops: suspend graph<br/>→ approval → single-use token<br/>(minted by Auth port)"]
-    READT ~~~ PRIVT
+    GW --> READT
+    GW --> PRIVT
   end
+
+  BACKENDS["<b>TOOL BACKENDS</b> (<i>lab</i> compose profile)<br/>Prometheus — metrics · Loki — logs<br/>faultbox — injectable faults for eval ground truth"]
 
   APPROVE["<b>Slack approval UI</b><br/>approve / deny buttons"]
 
@@ -66,7 +73,7 @@ flowchart TB
   subgraph L5["  EXECUTION & LEARNING  "]
     direction LR
     ACT["<b>ACTIONS</b> — deterministic, no LLM<br/>fingerprint rules: create-vs-update<br/>idempotent → Linear tickets<br/>Slack receipts · platform findings"]
-    FR["<b>FLIGHT RECORDER</b> — append-only audit spine (Postgres)<br/>events · node transitions · every LLM + tool call<br/>gates · actions · powers replay/eval harness<br/>+ per-agent hit-rate stats"]
+    FR["<b>FLIGHT RECORDER</b> — append-only audit spine (JSONL files, ADR-0012)<br/>events · node transitions · every LLM + tool call<br/>gates · actions · powers replay/eval harness<br/>+ per-agent hit-rate stats · Postgres holds the run→file/offset index"]
     DIST["<b>DISTILLER</b> — one-way,<br/>human gate on recipes<br/>case embeddings ① · graph edges ②<br/>draft recipes ③"]
     ACT ~~~ FR
     FR -- "B9" --> DIST
@@ -79,14 +86,14 @@ flowchart TB
   QUEUE ==> ORCH
   ORCH == "B6 Conclusion — determinism boundary" ==> ACT
 
-  %% ═══ Secondary paths ════════════════════════════════════════
+  %% ═══ Secondary paths ══════════════════════════════════════
   PORTS -.-> RECV
   ORCH -- "B3 retrieve → KnowledgeBundle" --> FACADE
-  AGENTS -- "B4 tool calls" --> READT
-  AGENTS -- "B4 gated calls" --> PRIVT
+  AGENTS -- "B4 — ALL tool calls enter here" --> GW
   PRIVT -- "B5 approval round-trip" --> APPROVE
+  READT -- "queries" --> BACKENDS
   READT -- "B10 API contract" --> CURLIX
-  MODS -. "federation" .-> CURLIX
+  MODS -. "④ federation — governed, tiered" .-> GW
   L3 -- "B8 AuditEvent — every block, async" --> FR
   DIST -- "distills into" --> MODS
   GOVSCHED -.- L3
@@ -99,8 +106,8 @@ flowchart TB
   classDef queue fill:#f8f9fa,stroke:#868e96,color:#343a40;
   classDef layer fill:#fffdf5,stroke:#b8a800,color:#5c5400;
 
-  class RECV,ORCH,REG,AGENTS,READT,ACT,GOVSCHED core;
-  class PORTS,CURLIX,GRAF,DD,PD,GEN,SLACKIN,APPROVE port;
+  class RECV,ORCH,REG,AGENTS,GW,READT,ACT,GOVSCHED core;
+  class PORTS,CURLIX,GRAF,DD,PD,GEN,SLACKIN,APPROVE,BACKENDS port;
   class PRIVT gate;
   class FACADE,MODS,FR,DIST learn;
   class QUEUE queue;
