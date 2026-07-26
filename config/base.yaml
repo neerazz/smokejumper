@@ -1,0 +1,11 @@
+# Environment-independent defaults (SPEC 2d), the lowest YAML layer.
+#
+# Deliberately keyless: every env-independent v1 value is already a code default
+# in src/smokejumper/config.py, and repeating one here would create a second
+# source for the same fact. Add a key only when it is env-independent AND has no
+# code default worth keeping.
+#
+# What never belongs here:
+#   - endpoints -> config/<env>.yaml, because they vary by environment
+#   - secrets   -> environment variables only; this file is committed
+#   - `env`     -> SMOKEJUMPER_ENV selects which file layers on top of this one

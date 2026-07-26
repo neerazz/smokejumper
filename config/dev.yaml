@@ -1,0 +1,19 @@
+# `dev` environment (SPEC 2d). Real Slack workspace and Linear team, cheap model,
+# tiny ceiling. Endpoints are absent because a managed instance's URL is
+# deployment-specific and credential-bearing; both arrive as environment
+# variables from the platform's secret manager.
+budget:
+  max_usd_per_run: "2.00"
+
+# Security-relevant substitutes still warn rather than fail here (SPEC 2d): dev
+# has no host platform to supply real Auth/Governance/Platform adapters. Each
+# substitute announces itself at boot, and `prod` refuses the same selection.
+ports:
+  auth: AllowAll
+  governance: NoopGovernance
+  tenancy: SingleTenant
+  model: DirectProvider
+  platform: FixturePlatform
+  channel: Slack
+  ticketing: Linear
+  memory: Postgres
