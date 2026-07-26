@@ -724,50 +724,61 @@ M2, when a real model call, Slack receipt, and Linear issue must cross the syste
 | Python | CPython 3.12+ | M0 | `python3.12 --version` |
 | uv | current version able to resolve and lock Python 3.12 dependencies | M0 | `uv --version` |
 | Docker | running daemon with Compose profile support and at least 4 GiB assigned | M0 | `docker info && docker compose version` |
+| Free host ports | the ports §11.2 publishes for the profiles being started | M0 | `python3 scripts/check_host_ports.py` |
 | Disk | at least 10 GiB free for images, volumes, logs, and eval fixtures | M0 | `df -h .` |
 | Node + npx | only for regenerating the Mermaid SVG; not an app runtime dependency | docs only | `node --version && npx --version` |
 
 ### 11.2 Network port contract
 
 The table below is the **only normative port inventory**. Compose, health checks, deployment
-manifests, and the port preflight test must match it. “Internal” means reachable only on a
-named container/deployment network and never published on a host interface.
+manifests, and `scripts/check_host_ports.py` must match it. One rule governs it: **a default
+`docker compose up` publishes exactly one port — the app's `8000` — and every published port
+binds `127.0.0.1`, never `0.0.0.0`.** Everything else is reached on the Compose network by
+service name, which is all the app needs; publishing it would widen the attack surface for a
+human's convenience only.
 
-| Component / listener | Bind inside deployment | Protocol / probe | Local host publication | dev/prod exposure | Consumer |
-|---|---|---|---|---|---|
-| Smokejumper API | `app:8000` | HTTP; `GET /healthz` | `127.0.0.1:${APP_HOST_PORT:-8000}:8000` | ingress/LB `443 → 8000`; only webhook/API routes | webhook sources, operator |
-| FastMCP target | `app:8100` | Streamable HTTP at `/mcp` | none | internal only | agentgateway only |
-| Postgres | `postgres:5432` | PostgreSQL; `pg_isready` | `127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432` | private data network only | app |
-| Redis | `redis:6379` | RESP; `PING` | `127.0.0.1:${REDIS_HOST_PORT:-6379}:6379` | private data network only | app |
-| agentgateway virtual MCP | `agentgateway:3000` | HTTP/MCP initialize + session | none | internal only | app MCP client |
-| agentgateway virtual LLM | `agentgateway:4000` | OpenAI-compatible HTTP; `/v1/models` | none | internal only | `ModelProvider` |
-| agentgateway admin | `agentgateway:15000` | HTTP UI at `/ui/` | `127.0.0.1:${AGENTGATEWAY_ADMIN_HOST_PORT:-15000}:15000` in local only | `config.adminAddr: off` | local operator only |
-| agentgateway metrics | `agentgateway:15020` | HTTP `GET /metrics` (also `/stats/prometheus`) | none | internal observability network only | Prometheus |
-| agentgateway readiness | `agentgateway:15021` | HTTP `GET /healthz/ready` | none | internal health probe only | Compose/orchestrator |
-| Prometheus | `prometheus:9090` | HTTP | `127.0.0.1:${PROMETHEUS_HOST_PORT:-9090}:9090` | private observability network | operator, metrics tool |
-| Alertmanager | `alertmanager:9093` | HTTP | `127.0.0.1:${ALERTMANAGER_HOST_PORT:-9093}:9093` | private observability network | operator, Receiver |
-| Grafana | `grafana:3000` | HTTP | `127.0.0.1:${GRAFANA_HOST_PORT:-3000}:3000` | authenticated internal UI | operator |
-| Loki | `loki:3100` | HTTP | `127.0.0.1:${LOKI_HOST_PORT:-3100}:3100` | private observability network | log tool |
-| Promtail | no host listener | outbound push to Loki | none | internal only | Loki |
-| faultbox | `faultbox:8080` | HTTP | `127.0.0.1:${FAULTBOX_HOST_PORT:-8080}:8080` | forbidden outside `local` | lab operator |
-| replayer | no listener | outbound HTTP to app | none | forbidden outside `local` | Receiver |
-| Phoenix UI | `phoenix:6006` | HTTP | `127.0.0.1:${PHOENIX_HOST_PORT:-6006}:6006` | authenticated internal UI if enabled | operator |
-| Phoenix OTLP | `phoenix:4317` | OTLP/gRPC | `127.0.0.1:${OTLP_GRPC_HOST_PORT:-4317}:4317` only when local tooling needs it | internal observability network | app, agentgateway |
-| External LLM/MCP | remote `443` | HTTPS with certificate verification | outbound only | egress allowed from agentgateway only | provider/federated targets |
-| Slack/Linear | remote `443` | HTTPS/WSS | outbound only | egress allowed from app | Channel/Ticketing adapters |
+| Component / listener | Profile | Bind inside deployment | Protocol / probe | Local host publication | dev/prod exposure | Consumer |
+|---|---|---|---|---|---|---|
+| Smokejumper API | default | `app:8000` | HTTP; `GET /healthz` | `127.0.0.1:${APP_HOST_PORT:-8000}:8000` | ingress/LB `443 → 8000`; only webhook/API routes | webhook sources, operator |
+| Postgres | default | `postgres:5432` | PostgreSQL; `pg_isready` | none | private data network only | app |
+| Redis | default | `redis:6379` | RESP; `PING` | none | private data network only | app |
+| Prometheus | `lab` | `prometheus:9090` | HTTP | `127.0.0.1:${PROMETHEUS_HOST_PORT:-9090}:9090` | private observability network | `metric.query` tool, lab operator |
+| Alertmanager | `lab` | `alertmanager:9093` | HTTP | none | private observability network | Receiver |
+| Loki | `lab` | `loki:3100` | HTTP | none | private observability network | `log.search` tool |
+| Promtail | `lab` | no listener | outbound push to Loki | none | internal only | Loki |
+| faultbox | `lab` | `faultbox:8080` | HTTP | none | forbidden outside `local` | lab operator |
+| replayer | `fixtures` | no listener | outbound HTTP to app | none | forbidden outside `local` | Receiver |
+| Phoenix UI | `obs` | `phoenix:6006` | HTTP | `127.0.0.1:${PHOENIX_HOST_PORT:-6006}:6006` | authenticated internal UI if enabled | operator |
+| Phoenix OTLP | `obs` | `phoenix:4317` | OTLP/gRPC | none | internal observability network | app |
+| Provider / Slack / Linear APIs | — | remote `443` | HTTPS/WSS with certificate verification | outbound only | egress allowed from app | `ModelProvider`, Channel/Ticketing adapters |
 
-Agentgateway v1.3.1 defaults matter: simplified MCP and LLM listeners default to `3000` and
-`4000`; admin defaults to localhost `15000`; metrics and readiness default to wildcard binds on
-`15020` and `15021`. Smokejumper therefore sets every management address explicitly. Local admin
-uses `0.0.0.0:15000` *inside the container* solely so Docker can map it to host loopback; dev/prod
-set it to `off`. Metrics/readiness are never host-published. MCP uses `failureMode: failClosed`.
+Two further ports are published, both under opt-in profiles and both because a human rather
+than the app is the consumer: Prometheus `9090` under `lab`, since with Grafana dropped it is
+the only UI that shows whether an alert rule actually fired; and Phoenix `6006` under `obs`,
+which exists solely to be read in a browser. Phoenix's OTLP `4317` stays unpublished because
+the app exports to `phoenix:4317` in-network.
 
-All host-published local ports bind to `127.0.0.1`, never `0.0.0.0`. Overrides belong in the
-untracked local `.env`; service-to-service URLs always use stable service names and container
-ports. `smokejumper doctor ports` checks only the profiles being requested, names the owning
-service for every collision, and prints the exact override variable. On this workstation,
-Grafana `3000` and Phoenix `6006` currently require overrides; agentgateway MCP `3000` does not
-collide because it is not host-published.
+v1 has **no MCP listener at all**: FastMCP servers are served in-process and the single app MCP
+client reaches them without a socket. Faults are injected by executing inside the faultbox
+container, not through a published port. Inspecting Postgres or Redis from the host is a
+per-developer opt-in in the git-ignored `docker-compose.override.yml` (§2d), never a committed
+default. Host-port overrides belong in the untracked local `.env`; service-to-service URLs
+always use stable service names and container ports.
+
+**Preflight.** `python3 scripts/check_host_ports.py [--profiles lab,fixtures,obs]` checks only
+the ports the requested profiles publish, names the owning service and — where discoverable —
+the local process holding the port, prints the exact override variable to set (for example
+`PHOENIX_HOST_PORT=16006`), and exits non-zero so it can gate. It imports only the standard
+library, so it runs before `uv sync`. `tests/scripts/test_check_host_ports.py` parses the table
+above and fails when it and the script's inventory disagree, so this contract cannot decay into
+prose-only truth.
+
+**This workstation, verified 2026-07-26 via `lsof -nP -iTCP -sTCP:LISTEN`:** `127.0.0.1:3000`
+(a Python process), `127.0.0.1:6006` and wildcard `*:8080` (both Docker) are occupied. Only
+Phoenix is affected and needs `PHOENIX_HOST_PORT`; `3000` and `8080` were previously published
+by Grafana and the faultbox and are now published by nothing. An earlier revision of this
+section named `3000` and `6006` while missing `8080` — the preflight exists so that class of
+omission cannot ship again.
 
 ### 11.3 Accounts, credentials, and identifiers
 
@@ -777,9 +788,8 @@ enabled adapter fails boot with the variable name, never during an incident.
 
 | Input | Exact configuration surface | Needed by | Owner action / local fallback |
 |---|---|---:|---|
-| One LLM provider | Provider secret mounted only in agentgateway and referenced as `llm.models[].params.apiKey.file`; app role strings are the virtual names in `SMOKEJUMPER__MODEL__WORKER` and `SMOKEJUMPER__MODEL__SYNTHESIS` | M2 | Choose one live provider. Tests use recorded responses; Ollama is supported through the proxy. |
-| Gateway client key | one generated 256-bit secret mounted at `AGENTGATEWAY_CLIENT_KEY_FILE` and `SMOKEJUMPER__GATEWAY__API_KEY_FILE`; runtime config uses strict `apiKey` policy on both listeners | M0 | `smokejumper bootstrap-secrets` generates it locally; secret manager owns it in dev/prod. No owner choice is needed. |
-| Embedding model | gateway concrete provider/model plus `SMOKEJUMPER__EMBEDDING__DIMENSION` | M3 | Choose before the pgvector migration; dimension is immutable without a migration. Recommended default: a provider-backed 1536-d model if that provider is already selected. |
+| One LLM provider | `SMOKEJUMPER__MODEL__API_KEY` carries the provider key to the app process; `ModelProvider` passes it to the SDK explicitly rather than relying on the SDK's ambient variable, so the key has exactly one name here. Provider and role model identifiers are non-secret values under `model:` in `config/<env>.yaml` (§2d) | M2 | Choose one live provider and its worker/synthesis model strings. Tests use recorded responses; a local Ollama endpoint needs no key. |
+| Embedding model | concrete embedding model under `model:` in `config/<env>.yaml` plus `SMOKEJUMPER__EMBEDDING__DIMENSION` | M3 | Choose before the pgvector migration; **the dimension is immutable without a migration.** Recommended default: a 1536-d model from the provider already selected. |
 | Spend ceiling | `SMOKEJUMPER__BUDGET__MAX_USD_PER_RUN` | M2 | Explicit in every environment. Local default: `1.00`; dev default: `2.00`; prod has no default and fails closed. |
 | Slack bot token | `SLACK_BOT_TOKEN` (`xoxb-…`) | M2 | Create/install one Slack app in the development workspace. |
 | Slack app token | `SLACK_APP_TOKEN` (`xapp-…`, `connections:write`) | M2 | Enable Socket Mode and create the app-level token. No `SLACK_SIGNING_SECRET` is required for the v1 Socket Mode transport. |
@@ -800,14 +810,11 @@ Official setup references used to lock these inputs:
 - Linear GraphQL authentication and team IDs: <https://linear.app/developers/graphql>
 - Docker Compose profiles: <https://docs.docker.com/compose/how-tos/profiles/>
 - Pydantic settings sources: <https://docs.pydantic.dev/latest/concepts/pydantic_settings/>
-- agentgateway configuration: <https://agentgateway.dev/docs/standalone/latest/configuration/overview/>
-- agentgateway virtual MCP and authz: <https://agentgateway.dev/docs/standalone/latest/mcp/connect/virtual/>
-- agentgateway virtual models: <https://agentgateway.dev/docs/standalone/latest/llm/virtual-models/>
 
 ### 11.4 Owner checklist—the only inputs an agent cannot manufacture
 
 - [ ] **By M2:** choose the live LLM provider and exact worker/synthesis model strings; provide
-  one provider key to agentgateway and confirm the local spend ceiling.
+  one provider key to the app process and confirm the local spend ceiling.
 - [ ] **By M2:** create the Slack app, enable Socket Mode + interactivity, apply the four bot
   scopes above, install it, invite it to the development channel, and provide the two tokens
   plus channel ID through the runtime environment.
@@ -842,13 +849,6 @@ not have to invent them:
    signing key is required.
 8. Exact third-party versions are not guessed in prose. M0 verifies official compatibility,
    pins them in `pyproject.toml`, and commits `uv.lock`; the lockfile is executable truth.
-9. agentgateway starts at stable v1.3.1 with exact release checksum/image digest. Beta tags are
-   excluded until a compatibility test proves config, LLM, MCP session, CEL authz, and telemetry.
-10. `mcp/manifest.yaml` generates the proxy policy/config; hand-editing generated YAML or saving
-    through the admin UI is prohibited.
-11. agentgateway request-database storage and raw prompt/completion capture are disabled in v1.
-    JSONL owns replay; gateway metrics/redacted traces are read-side only.
-12. The app has no bypass path: proxy outage yields `needs_human`, never direct provider/MCP egress.
 
 ## 12. Executable implementation plan
 
