@@ -57,7 +57,7 @@ unbacked state this record exists to fix.
 - **We gave up** Logstash/Elasticsearch parsing and query power for footprint. Loki's LogQL
   is weaker at ad-hoc analytics; for "fetch the logs around this incident window" it is
   sufficient, and that is the only query shape `log search` needs.
-- **We gave up** true fidelity for Datadog and PagerDuty: we test our normalizers and HMAC
+- **We gave up** true fidelity for Datadog and PagerDuty: we test our normalizers and their
   verification against *recorded* payloads, so a vendor changing their webhook shape is
   caught by fixture staleness, not by the lab. §8's golden fixtures are the tripwire, and
   ADR-0014 already accepted payload-drift maintenance.

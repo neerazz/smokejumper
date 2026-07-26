@@ -6,10 +6,11 @@ An alert lands, Smokejumper dispatches budgeted specialist investigators in para
 reports a grounded conclusion with receipts—creating or updating exactly one ticket per
 incident fingerprint.
 
-> **Status: the M0 foundation is implemented; M1–M6 are design only.** The three-service Compose
-> stack boots and the contracts, configuration, and ports exist. The incident-triage behaviour —
-> intake, investigation, and actions — does not. Commands are published as runnable only after
-> their milestone has been implemented and verified.
+> **Status: the M0 foundation and Datadog intake are implemented; the rest is design only.** The
+> three-service Compose stack boots, and a verified Datadog alert is normalized, deduplicated,
+> stored, and queued. Nothing consumes that queue yet, so an accepted alert waits: there is no
+> investigation, no ticket, and no Slack receipt. Four of the five alert sources have no normalizer.
+> Commands are published as runnable only after their milestone has been implemented and verified.
 
 ## One source of truth
 

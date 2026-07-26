@@ -117,7 +117,7 @@ schema drift with no SDK cushion.
 **[0014 · Hand-written alert normalizers seeded from Alerta](0014-handwritten-normalizers.md)**
 No pip-installable library normalizes Grafana/Alertmanager/Datadog/PagerDuty webhooks — what
 exists are whole platforms with parsers inside them. We hand-write per-source normalizers and
-HMAC verification, seeding logic from Alerta's Apache-2.0 parsers with attribution, rather than
+their verification, seeding logic from Alerta's Apache-2.0 parsers with attribution, rather than
 deploying Keep or Alerta as a sidecar to reuse ~500 lines. We own payload-drift maintenance;
 golden fixtures are the tripwire.
 
