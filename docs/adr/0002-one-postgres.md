@@ -1,6 +1,6 @@
 # ADR-0002: One Postgres 16 + pgvector for all state
 
-**Status:** Accepted · 2026-07-10 · **Level:** L1
+**Status:** Accepted · 2026-07-10 · **Level:** L1 · **Amended by** [ADR-0012](0012-jsonl-audit-source-of-truth.md) (audit events moved to JSONL; Postgres retains the run/file-offset index)
 
 ## Context
 The system needs: relational state (runs, approvals, tickets), vector search (episodic
@@ -8,8 +8,9 @@ memory), a knowledge graph (caused_by/fixed_by/applies_to), and LangGraph checkp
 Each has a specialized best-of-breed store (Neo4j, Qdrant/Weaviate, etc.).
 
 ## Decision
-Every durable byte lives in one Postgres 16 instance: pgvector for embeddings, plain edge
-tables for the graph, LangGraph's Postgres checkpointer, alembic-managed schema.
+Application state lives in one Postgres 16 instance: pgvector for embeddings, plain edge
+tables for the graph, LangGraph's Postgres checkpointer, and the Alembic-managed schema.
+ADR-0012 later moved authoritative audit events to JSONL; Postgres retains only their run index.
 
 ## Options considered
 1. **Unified Postgres (chosen)** — 2026 consensus for this scale ("teams consolidating on

@@ -1,6 +1,6 @@
 # ADR-0012: JSONL flight recorder as audit source of truth; observability platforms deferred
 
-**Status:** Accepted · 2026-07-10 · **Level:** L2 · Sponsor requirement (file-based, streamable, no retention policy)
+**Status:** Accepted · 2026-07-10 · **Level:** L2 · Sponsor requirement (file-based, streamable, no retention policy) · **Amended by** [ADR-0019](0019-observability-otel-phoenix.md) (optional Phoenix read-side added; JSONL remains authoritative)
 
 ## Context
 Every event, LLM call, tool call, gate, and action must be auditable and replayable.
@@ -10,8 +10,8 @@ Research surveyed Langfuse (richest, but self-host = 6 services incl. ClickHouse
 ## Decision
 Append-only JSONL files in the log directory (dated, timestamp-suffixed per process start)
 are the authoritative audit record; an in-process broadcast channel makes them streamable;
-Postgres keeps only a run→file/offset index. No observability platform in v1; at most
-library-only OTel spans (OpenLLMetry) as optional debug telemetry.
+Postgres keeps only a run→file/offset index. The original UI deferral was later amended by
+ADR-0019 to permit optional Phoenix as a read-side OTel consumer; it never owns the record.
 
 ## Options considered
 1. **JSONL SoT + optional OTel (chosen).**

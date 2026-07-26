@@ -1,6 +1,6 @@
 # ADR-0004: Hexagonal ports with loud v1 stubs
 
-**Status:** Accepted · 2026-07-10 · **Level:** L1
+**Status:** Accepted · 2026-07-10 · **Level:** L1 · **Amended by** [ADR-0018](0018-layered-environment-config.md) (security-relevant stubs fail closed in prod; `SingleTenant` is the v1 tenancy implementation)
 
 ## Context
 Smokejumper is open-source core that must later embed into host platforms (first: Curlix)
@@ -10,6 +10,9 @@ with real auth, tenancy, and governance — none of which v1 users need to run i
 Auth, Governance, Tenancy, ModelProvider, PlatformPort, ChannelAdapter, TicketingPort, and
 MemoryPort are interfaces in `ports/`. v1 ships stubs (`AllowAll`, `SingleTenant`,
 `EnvCredentials`, `FixturePlatform`) that announce themselves loudly at boot.
+
+Current classification is normative in SPEC §5.10: `SingleTenant` and `EnvCredentials` are
+implementations, not security stubs; prod rejects `AllowAll`, `NoopGovernance`, fixtures, and fakes.
 
 ## Options considered
 1. **Ports + stubs (chosen).**

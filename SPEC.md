@@ -62,7 +62,7 @@ horizontal scaling, UI beyond Slack.
 | Agent runtime | LangGraph + `langgraph-checkpoint-postgres` 3.x (**must set `LANGGRAPH_STRICT_MSGPACK=true`** — CVE-2026-28277 deserialization hardening). Supervisor topology is **copied as a pattern** (tool-calling supervisor per LangChain's guide), NOT a dependency on `langgraph-supervisor` — its maintainers steer users away from it | durability via Postgres checkpointer is enough for v1; Temporal deferred |
 | MCP layer | FastMCP 3.x (Apache-2.0, **version-pinned**) for client + own servers + governance middleware; `langchain-mcp-adapters` loads MCP tools into LangGraph. Official `mcp` SDK v2 is beta — do not build on it yet | verified 2026-07-10; see §2b |
 | Queue | Redis Streams (consumer groups) | burst absorption, replayable inbox |
-| Store | **One Postgres 16** + pgvector | unified store consensus: vectors + graph edges + recorder in one DB; no separate graph DB |
+| Persistence | SQLAlchemy 2 async + psycopg 3 + Alembic over **one Postgres 16** + pgvector | application state, vectors, graph edges, checkpoints, and the JSONL run/file-offset index share one DB; audit events themselves stay in JSONL |
 | Knowledge graph | Postgres edge tables, bi-temporal (valid_at / recorded_at, Graphiti-style) | facts change; never lose what we believed at decision time |
 | Memory extraction | LangMem-style extraction in Distiller; **distill, don't append** | append-everything degrades retrieval |
 | LLM | **Swappable by config, zero code**: `ModelProvider` port over LangChain `init_chat_model` provider strings (`anthropic:*`, `openai:*`, `google_genai:*`, `ollama:*`, …), configured **per role** (`worker`, `synthesis`) through `config/<env>.yaml` or env overrides. Ships with Anthropic defaults (claude-sonnet-5 workers, claude-opus-4-8 synthesis); switching to Codex/GPT, Gemini, or a local model is an edit to two config values | hard requirement: any provider, swappable at any time; no provider import outside `ports/model.py` |
@@ -88,7 +88,7 @@ lanes + adversarial verification (13/13 claims verified at primary sources).
 | MCP governance | FastMCP middleware `on_call_tool` hook (block via ToolError) — the embeddable tiering seam | tool→tier registry + policy middleware + **redundant enforcement in our tool executor** (security boundary never single-sourced in a third-party hook) |
 | Approvals | LangGraph `interrupt()` + PostgresSaver (durable suspend/resume); slack-bolt Block Kit. **HumanLayer rejected — repo self-declares deprecated** | single-use approval tokens, 30-min expiry, token→(thread_id, tool_call) binding |
 | Audit/replay | LangGraph time-travel (`get_state_history`, fork) as replay backbone | JSONL recorder (source of truth) + model-response recording for deterministic replay |
-| Eval | `openevals` (MIT) or `deepeval` (Apache-2.0, pytest-native) | golden cases |
+| Eval | Hand-written deterministic scorer over recorded cases: exact B6 status + required evidence refs; no LLM-as-judge in CI | the v1 acceptance metric is small and deterministic; add an eval library only when a non-trivial metric requires it |
 | Observability | OpenTelemetry + OpenInference instrumentation; optional `obs` profile runs Phoenix as the default read-side UI, with Langfuse as an exporter-only swap. JSONL remains authoritative | no runtime dependency on the UI; ADR-0019 amends the earlier UI deferral |
 | Ticketing SDKs | `githubkit` (MIT, async — over PyGithub: LGPL + "seeking maintainers") · `atlassian-python-api` · official `asana` | TicketingPort (verified: no OSS unifier covers Linear+GitHub+Jira+Asana — ticketutil has the wrong provider set) + **Linear adapter via direct GraphQL** (no official Python SDK; community `linear-api` stale) |
 
@@ -175,10 +175,10 @@ injected by the platform's secret manager. `config/` stays diffable and safe to 
 | Ticketing (§5.6) | dry-run / fixture | test Linear team | prod Linear team |
 | Slack | dev workspace | dev workspace | real workspace |
 | Federated MCP (§5.5) | stub descriptor | dev endpoint | prod endpoint |
-| Ports (§5.10) | stubs allowed | stubs warn | **stubs forbidden** |
+| Ports (§5.10) | stubs allowed | stubs warn | **security-relevant stubs forbidden** |
 
 ### Environment-gated safety rules (enforced at boot, not documented-and-hoped)
-- **`prod` refuses to start if any port is a stub** (`AllowAll`, `NoopGovernance`,
+- **`prod` refuses to start if any security-relevant port is a stub** (`AllowAll`, `NoopGovernance`,
   `FixturePlatform`). ADR-0004 accepted the risk that "stubs normalize insecurity if deployed
   carelessly" and mitigated it with a loud log line — a log line is not a control. Fail closed.
 - **`lab` and `fixtures` compose profiles are refused outside `local`.** The faultbox exists
@@ -238,7 +238,7 @@ prompts/
 └── CHANGELOG.md
 ```
 
-The Agent Registry (§5.3) **references** rather than inlines: `prompt: agents/metrics-analyst@v3`.
+The Agent Registry (§5.3) **references** rather than inlines: `prompt_ref: agents/metrics-analyst@v3`.
 Three rules make this load-bearing:
 
 - **Versions are immutable.** Never edit `v3`; add `v4`. Same discipline as ADRs.
@@ -326,18 +326,26 @@ with every payload.
   signature or configured shared secret; Slack Socket Mode authenticates with the app token
   and does not require an HTTP signing secret. Stub: AllowAll.
 - **B2 · AgentEvent** — the single input type intelligence accepts:
-  `{id, schema_version, source(grafana|datadog|pagerduty|generic|slack|scheduled), kind(alert|chat|scheduled|storm), fingerprint, severity(critical|high|medium|low|info), title, body, entities[{type,id}], occurred_at, received_at, dedupe_count, raw}`.
-  Fingerprint = stable hash of (source, alertname/monitor-id, entity set) — NOT of the text.
+  `{id, schema_version, source(grafana|alertmanager|datadog|pagerduty|generic|slack|scheduled), kind(alert|chat|scheduled|storm), source_event_key, fingerprint, severity(critical|high|medium|low|info), title, body, entities[{type,id}], occurred_at, received_at, dedupe_count, raw}`.
+  `fingerprint` is SHA-256 of canonical JSON `[source, source_event_key, sorted([[entity.type,
+  entity.id], ...])]`—never of title/body text. Normalizers own `source_event_key`: Grafana/
+  Alertmanager alert identity, Datadog monitor ID, PagerDuty dedup key, generic caller event ID,
+  Slack thread timestamp, or scheduled recipe+window.
 - **B3 · retrieve(ctx) → KnowledgeBundle** — `{episodes[], graph_paths[], recipes[], federated[], tokens_used}`; every item carries `{content, source_ref, valid_at, recorded_at, score}`.
 - **B4 · ToolCall / ToolResult** — `{run_id, agent, tool, args, tier(read|privileged)}` →
   `{ok, value|error, latency_ms, cost}`. Read tier executes; privileged tier suspends the run.
-- **B5 · ApprovalRequest / ApprovalDecision** — request: `{id, run_id, tool_call, reason, requested_at, expires_at(30m)}`; decision: `{approved, decided_by, decided_at, token}` where token is single-use, minted by the Auth port, and consumed on execution. Expiry ⇒ auto-deny.
+- **B5 · ApprovalRequest / ApprovalDecision** — request: `{id, run_id, channel_id,
+  message_ts, thread_ts, tool_call, tool_call_sha256, reason, requested_at, expires_at(30m)}`;
+  decision: `{approved, decided_by, decided_at, token}` where the opaque token is single-use,
+  bound to `(channel_id, thread_ts, tool_call_sha256)`, minted by the Auth port, stored only as
+  a hash, and consumed by one atomic update. Expiry ⇒ auto-deny.
 - **B6 · Conclusion** — the determinism boundary:
   `{run_id, fingerprint, status(root_caused|mitigated|inconclusive|needs_human), confidence(0-1), summary_md, findings[], evidence_refs[], proposed_actions[], tokens_spent, wall_ms}`.
   Nothing downstream of B6 may call a model.
 - **B8 · AuditEvent** — `{run_id, seq, ts, actor(block or agent), kind(event|transition|llm_call|tool_call|gate|action), payload, schema_version}`; append-only, async, every block emits.
-  `llm_call` events additionally carry `{prompt_ref, prompt_sha256, model}` (§2e) so a run is
-  attributable to an exact prompt version and replay can assert prompt identity.
+  `llm_call` payloads additionally carry `{prompt_ref, prompt_sha256, model, request_sha256,
+  response, usage{input_tokens,output_tokens}, cost_usd, latency_ms}` (§2e). The recorded
+  response is the deterministic replay fixture; configured redaction runs before append.
 - **B9 · DistillationCandidate** — a closed case bundle from the recorder → Distiller.
 - **B10 · PlatformPort** — external host-platform API (e.g. Curlix): `skills.execute`,
   `assets.query`, `findings.write`. v1 stub: no-op + fixture data.
@@ -356,14 +364,17 @@ with every payload.
   **seeded from Alerta's Apache-2.0 `alerta/webhooks/` parsers** (grafana, prometheus,
   pagerduty, cloudwatch, …) with attribution. Signature verification is per-source HMAC,
   also hand-written (Alertmanager sends none — allowlist by network instead).
-- One FastAPI route per alert source (Grafana/Datadog/PagerDuty/generic). **Slack runs in
+- One FastAPI route per HTTP source: `/webhooks/grafana`, `/webhooks/alertmanager`,
+  `/webhooks/datadog`, `/webhooks/pagerduty`, `/webhooks/generic`. **Slack runs in
   Socket Mode via `slack-bolt`** (a listener task next to FastAPI — no public URL needed;
   inbound events and outbound Web API calls use the same bot). Requires a Slack app Neeraj
   creates once: bot token (`xoxb-`) + app token (`xapp-`, `connections:write`), bot scopes
   `app_mentions:read`, `chat:write`, `channels:history`, `reactions:write` + interactivity
   enabled for the approve/deny buttons.
-- Verify via Auth port (B1) → normalize to AgentEvent (B2) → fingerprint → dedupe window (default 15 min: same fingerprint increments
-  `dedupe_count` on the open event instead of emitting a new one) → coalesce storms (>20
+- Verify via Auth port (B1) → normalize to AgentEvent (B2) → fingerprint → fixed dedupe window
+  (15 minutes from the first `received_at`; duplicates do not extend it; an incident close also
+  closes it). The same fingerprint increments `dedupe_count` on the open event instead of
+  emitting a new one → coalesce storms (>20
   distinct fingerprints from one source in 5 min ⇒ emit ONE `storm` AgentEvent that wraps the
   set; per-alert events are recorded but not enqueued).
 - Failure mode: unverifiable payload → 401 + recorder entry; unparseable → quarantine table + 202.
@@ -481,9 +492,20 @@ governance seam, one tier registry** — see ADR-0017.
   promotes drafts. One-way: Distiller writes knowledge, never reads chat.
 
 ### 5.10 Ports (hexagonal seam)
-`AuthPort`, `GovernancePort`, `TenancyPort`, `ModelProvider`, `PlatformPort` — interfaces in
-`ports/`, v1 stubs: `AllowAll`, `NoopGovernance`, `SingleTenant`, `EnvCredentials`,
-`FixturePlatform`. Every stub logs loudly at boot that it is a stub.
+
+| Port | v1 implementation | Local/test substitute | Prod gate |
+|---|---|---|---|
+| `AuthPort` | host-supplied credential/signature verifier | `AllowAll` | `AllowAll` forbidden |
+| `GovernancePort` | host-supplied policy identity | `NoopGovernance` | `NoopGovernance` forbidden |
+| `TenancyPort` | `SingleTenant` | same | allowed: single tenancy is the v1 contract, not a stub |
+| `ModelProvider` | configured LLM adapter | recorded/fake model | fake forbidden |
+| `PlatformPort` | host-supplied platform adapter | `FixturePlatform` | fixture forbidden |
+| `ChannelAdapter` | Slack Socket Mode | fake channel | fake forbidden when enabled |
+| `TicketingPort` | Linear GraphQL | dry-run/fixture adapter | fixture forbidden when enabled |
+| `MemoryPort` | Postgres+pgvector bi-temporal store | in-memory test adapter | in-memory forbidden |
+
+`EnvCredentials` is the runtime secret resolver used by real adapters; it is not a security
+decision and is not itself a stub. Every selected substitute logs its identity at boot.
 
 **Environment gate (§2d):** stub selection is env-aware and enforced, not advisory —
 `local` allows stubs, `dev` warns, and **`prod` refuses to boot** while any security-relevant
@@ -500,8 +522,9 @@ Assignments → Findings back → aggregate → synthesize Conclusion(root_cause
 Actions: create Linear ticket SMOKE-123 + Slack receipt with evidence links → recorder has
 the full trace → run closed.
 
-### 6.2 Approval round-trip
-Sub-agent requests privileged tool → MCP gateway suspends run (LangGraph interrupt persisted) →
+### 6.2 Approval round-trip (v1 test/demo path)
+The production privileged tier is empty. The test-only `demo_destructive_noop` proves the full
+path: sub-agent requests privileged tool → MCP gateway suspends run (LangGraph interrupt persisted) →
 ApprovalRequest → Slack message with Approve/Deny buttons → human approves → Auth port mints
 single-use token → tool executes once → token consumed → run resumes. Deny or 30-min expiry ⇒
 tool result = `denied`, agent must proceed without it.
@@ -535,8 +558,8 @@ Postgres) · `approvals` (B5) · `tickets` (fingerprint ↔ TicketRef map, provi
   how eval cases get generated instead of hand-authored, and it is the only test in the suite
   where "was the conclusion correct" is mechanically answerable. Not CI-gated (needs the lab);
   run before a release.
-- **Acceptance (v1 exit):** docker-compose up + seeded fixtures; firing the three golden
-  webhooks yields: 1 ticket with correct create-vs-update behavior, Slack receipt, full
+- **Acceptance (v1 exit):** docker-compose up + seeded fixtures; firing the named acceptance
+  trio—Grafana, Datadog, and PagerDuty—yields: 1 ticket with correct create-vs-update behavior, Slack receipt, full
   recorder trace, `smokejumper eval` ≥ 4/5 cases matching expected Conclusion status.
 
 ## 9. Milestones (each independently verifiable)
@@ -545,7 +568,7 @@ Postgres) · `approvals` (B5) · `tickets` (fingerprint ↔ TicketRef map, provi
 |---|---|---|
 | M0 | Repo skeleton, contracts, CI, docker-compose (default profile), `config/` layering (§2d), stub ports | `pytest` green; compose boots; `SMOKEJUMPER_ENV=prod` fails closed on stub ports |
 | M1 | Receiver + queue + recorder core + `lab`/`fixtures` profiles (§2c) | golden webhooks → normalized events in DB, storm test passes; a real Grafana/Alertmanager alert reaches the queue |
-| M2 | Supervisor + ONE specialist + Actions (ticket+receipt) | end-to-end triage of golden case #1 |
+| M2 | Supervisor + ONE specialist + Actions (ticket+receipt) | `evals/case-01.json` traverses queue → Metrics Analyst → B6 → fixture ticket/receipt exactly once; credentialed Linear/Slack is a release smoke test |
 | M3 | Knowledge façade (vectors+graph+recipes) wired into retrieve | bundle appears in trace; precedent case cited |
 | M4 | Parallel specialists + budgets + Governor | 3 agents in parallel; budget-breach test passes |
 | M5 | MCP tiers + approval round-trip | demo noop tool gated end-to-end in test; federated descriptor loads through the same manifest |

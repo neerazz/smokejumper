@@ -34,9 +34,9 @@ state. Uses the Postgres checkpointer we already run instead of adding Temporal.
 engine-grade retry/timer semantics and in-flight workflow versioning; keeps a one-service
 deployment a solo maintainer can operate.
 
-**[0002 · One Postgres 16 + pgvector for all state](0002-one-postgres.md)**
-Relational state, vectors, graph edges, and checkpoints all live in a single database rather
-than best-of-breed stores. Gives up native graph traversal performance and — the most expensive
+**[0002 · One Postgres 16 + pgvector for application state](0002-one-postgres.md)**
+Relational state, vectors, graph edges, checkpoints, and the JSONL run index live in a single
+database rather than best-of-breed stores; authoritative audit events remain files. Gives up native graph traversal performance and — the most expensive
 consequence — rules out Graphiti as a dependency. Keeps one backup story, transactional joins
 across memory and runs, and a compose file a newcomer can run in one command.
 
@@ -137,7 +137,7 @@ not be able to declare its own tier next to itself.
 One validated settings object assembled from `base.yaml` → `<env>.yaml` → env vars → flags,
 selected by `SMOKEJUMPER_ENV`. Reserves "environment" for local/dev/prod and "compose profile"
 for service selection, because the two were about to share a word. Closes
-[0004](0004-hexagonal-ports.md)'s open risk: prod now refuses to boot with stub ports, refuses
+[0004](0004-hexagonal-ports.md)'s open risk: prod now refuses to boot with security-relevant stubs, refuses
 to run without a spend ceiling, and refuses the `lab`/`fixtures` profiles.
 
 **[0019 · OpenTelemetry seam; Arize Phoenix as default backend](0019-observability-otel-phoenix.md)**

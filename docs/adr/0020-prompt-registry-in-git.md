@@ -31,7 +31,7 @@ prompts/
 └── CHANGELOG.md
 ```
 
-The registry references rather than inlines: `prompt: agents/metrics-analyst@v3`.
+The registry references rather than inlines: `prompt_ref: agents/metrics-analyst@v3`.
 
 Three rules make it load-bearing:
 
