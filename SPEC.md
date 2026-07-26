@@ -661,6 +661,8 @@ Added 2026-07-25 (architecture update):
     validated settings object; secrets by reference only. Deliberately distinct from compose
     profiles, which select services rather than values. Prod fails closed on security-relevant stubs and on
     a missing spend ceiling, and the `lab`/`fixtures` profiles are refused outside `local`.
+    *Amended by 17: the `fixtures` profile no longer exists, so `lab` is the only profile
+    refused outside `local`. The fail-closed rules are unchanged.*
 14. **Observability via an OTel seam** (§2e, ADR-0019) — instrument application semantics in the
     model port and MCP executor; Phoenix is the default backend behind an `obs` profile (single
     container, eval-first) with Langfuse as a config-only swap. Amends ADR-0012's "no trace UI in
@@ -697,7 +699,7 @@ Amended 2026-07-26 (subtraction pass, approved by Neeraj):
       Alertmanager fire webhooks at the Receiver directly; the Grafana payload shape is covered
       by golden fixtures and `smokejumper fixtures replay`. Loki stays — `log.search` needs a
       real backend.
-    - **The `fixtures` compose profile removed** (amends 11). Its only service was the app image
+    - **The `fixtures` compose profile removed** (amends 11 and 13). Its only service was the app image
       running `smokejumper fixtures replay`, which acceptance invokes directly anyway — a service
       and a profile for zero capability. The corpus under `fixtures/webhooks/` stays; it is what
       the golden per-source tests read.
