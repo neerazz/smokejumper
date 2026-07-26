@@ -81,6 +81,7 @@ async def admit(
                        SELECT id FROM events
                         WHERE fingerprint = :fingerprint
                           AND quarantined = false
+                          AND window_closed_at IS NULL
                           AND received_at > :cutoff
                         ORDER BY received_at
                         LIMIT 1
@@ -156,22 +157,37 @@ async def quarantine(
     )
 
 
-async def close_window(connection: AsyncConnection, *, fingerprint: str) -> int:
+async def close_window(
+    connection: AsyncConnection,
+    *,
+    fingerprint: str,
+    closed_at: datetime,
+) -> int:
     """Close the open dedupe window for `fingerprint`, returning rows affected.
 
     SPEC 5.1: an incident close also closes the window. Without this a recovery
     followed by a genuine re-trigger inside 15 minutes would be counted as a
     duplicate of the incident that just ended.
+
+    Sets explicit state rather than back-dating `received_at` to fake expiry.
+    Back-dating passed the same tests and was wrong: `received_at` is an audit
+    fact — when we actually saw the alert — so moving it made the column lie, made
+    it disagree with the `received_at` inside the stored payload, and drifted a
+    further 15 minutes on every recovery because nothing made it idempotent.
+
+    `window_closed_at IS NULL` in the predicate is what makes this idempotent: a
+    repeated recovery for an already-closed incident affects zero rows.
     """
     result = await connection.execute(
         text(
             """
             UPDATE events
-               SET received_at = received_at - INTERVAL '15 minutes'
+               SET window_closed_at = :closed_at
              WHERE fingerprint = :fingerprint
                AND quarantined = false
+               AND window_closed_at IS NULL
             """
         ),
-        {"fingerprint": fingerprint},
+        {"fingerprint": fingerprint, "closed_at": closed_at},
     )
     return result.rowcount

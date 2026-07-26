@@ -576,13 +576,20 @@ no ticket unless asked.
 
 ## 7. Data model (Postgres, one database)
 
-`events` (B2, quarantine flag) · `runs` (fingerprint, status, budgets, audit-log file +
+`events` (B2, quarantine flag, `window_closed_at`) · `runs` (fingerprint, status, budgets, audit-log file +
 offsets — the index into the JSONL audit sink; B8 events themselves live in `logs/`, not
 Postgres) · `approvals` (B5) · `tickets` (fingerprint ↔ TicketRef map, provider-tagged) ·
 `episodes` (case embeddings, pgvector, bi-temporal `valid_at`/`recorded_at`) ·
 `checkpoints` (LangGraph) · `schema_migrations` (alembic).
 
 `kg_nodes`/`kg_edges` are post-v1 (§5.4, decision 17); no v1 migration creates them.
+
+**Dedupe-window state is its own column.** `events.window_closed_at` is NULL while the window is
+open and carries the recovery timestamp once closed (§5.1). It exists because the alternative —
+back-dating `received_at` to fake expiry — was implemented, passed every test, and was still wrong:
+`received_at` is an audit fact, so moving it made the column claim a time we did not receive the
+alert, disagree with the `received_at` inside the stored payload, and drift a further 15 minutes on
+every redelivered recovery. Window state and arrival time are two facts and get two columns.
 
 ## 8. Testing & acceptance
 
@@ -1117,8 +1124,10 @@ docker compose down
 4. **Fingerprint, dedupe, storm — dedupe LANDED, storm outstanding:** canonical entity ordering,
    stable hash, and the 15-minute window are done and proven under concurrency; `admit()` takes a
    per-fingerprint advisory lock, because the window is time-relative and so cannot be a partial
-   unique index. **Outstanding:** the 20-vs-21 fingerprint storm boundary, the five-minute reset,
-   and the single `kind=storm` enqueue.
+   unique index. The lock is proven load-bearing, not assumed: removing it and replaying the same
+   25-delivery storm produces **four** rows instead of one. Recovery sets `window_closed_at`
+   (§7) and is idempotent. **Outstanding:** the 20-vs-21 fingerprint storm boundary, the
+   five-minute reset, and the single `kind=storm` enqueue.
 5. **Redis Streams — producer LANDED, consumer outstanding:** `queue/producer.py` XADDs to
    `agentevents` with a bounded `maxlen`. **Outstanding:** the `intelligence` consumer group,
    at-least-once reclaim, `event.id` idempotency, and max in-flight 3. Nothing reads the stream

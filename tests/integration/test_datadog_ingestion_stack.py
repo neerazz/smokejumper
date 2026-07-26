@@ -173,6 +173,58 @@ def test_recovery_closes_the_window_so_a_retrigger_is_new(
     assert rows == 2
 
 
+def test_recovery_does_not_rewrite_the_received_at_audit_field(
+    delivery: dict[str, Any], secret: str
+) -> None:
+    """Closing a window must not move `received_at`.
+
+    An earlier implementation faked expiry by subtracting 15 minutes from
+    `received_at`. Every other test still passed, because none of them looked at
+    the timestamp. It made the column claim we saw the alert at a time we did not,
+    disagree with the `received_at` inside the stored payload, and drift further on
+    each recovery. This is the assertion that would have caught it.
+    """
+    alert_id = delivery["alert_id"]
+    assert _post(delivery, token=secret).json()["status"] == "accepted"
+
+    def stored() -> tuple[str, str]:
+        raw = _scalar(
+            "SELECT received_at || '|' || (payload->>'received_at') FROM events "
+            f"WHERE payload->>'source_event_key' = '{alert_id}'"
+        )
+        column, in_payload = raw.split("|")
+        return column.strip(), in_payload.strip()
+
+    before_column, before_payload = stored()
+
+    for _ in range(3):
+        _post({**delivery, "alert_transition": "Recovered"}, token=secret)
+
+    after_column, after_payload = stored()
+
+    assert after_column == before_column, "received_at is an audit fact, not window state"
+    assert after_payload == before_payload
+    # The window is recorded as closed, in its own column.
+    assert (
+        _scalar(
+            "SELECT window_closed_at IS NOT NULL FROM events "
+            f"WHERE payload->>'source_event_key' = '{alert_id}'"
+        )
+        == "t"
+    )
+
+
+def test_repeated_recovery_is_idempotent(delivery: dict[str, Any], secret: str) -> None:
+    """Datadog can redeliver a recovery; the second one must be a no-op."""
+    _post(delivery, token=secret)
+
+    first = _post({**delivery, "alert_transition": "Recovered"}, token=secret).json()
+    second = _post({**delivery, "alert_transition": "Recovered"}, token=secret).json()
+
+    assert first["windows_closed"] == 1
+    assert second["windows_closed"] == 0, "an already-closed window must not close again"
+
+
 def test_an_unnormalizable_body_is_quarantined_not_dropped(secret: str) -> None:
     """A payload with no monitor id has no stable identity, so it cannot be an event.
 

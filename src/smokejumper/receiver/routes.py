@@ -76,7 +76,9 @@ def build_router(*, engine: AsyncEngine, redis: Redis, datadog_secret: str) -> A
         # because there is nothing left to investigate.
         if datadog.is_recovery(payload):
             async with engine.begin() as connection:
-                closed = await repository.close_window(connection, fingerprint=event.fingerprint)
+                closed = await repository.close_window(
+                    connection, fingerprint=event.fingerprint, closed_at=received_at
+                )
             logger.info("datadog recovery closed %d window(s)", closed)
             return {
                 "status": "recovered",

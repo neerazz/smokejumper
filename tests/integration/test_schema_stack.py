@@ -7,6 +7,7 @@ catch a table that was created before the milestone that writes it.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -56,8 +57,36 @@ def test_schema_holds_exactly_the_m0_tables(repo_root: Path) -> None:
     assert tables.splitlines() == ["alembic_version", "events", "runs"]
 
 
+def _expected_head(repo_root: Path) -> str:
+    """The head revision the committed migrations define.
+
+    Derived rather than hardcoded. A literal made this test fail on every new
+    migration for the wrong reason — the assertion that matters is "the database
+    is at the revision this checkout defines", which catches migrations that did
+    not run. Hardcoding turned that into an unrelated edit each time, and a test
+    people routinely edit to make it pass is a test they stop reading.
+
+    Head is the one revision no other revision points back to.
+    """
+    versions = repo_root / "migrations" / "versions"
+    revisions: dict[str, str | None] = {}
+    for path in versions.glob("[0-9]*.py"):
+        text = path.read_text(encoding="utf-8")
+        revision = re.search(r'^revision:\s*str\s*=\s*"([^"]+)"', text, re.M)
+        down = re.search(r'^down_revision:.*=\s*(?:"([^"]+)"|None)', text, re.M)
+        assert revision, f"{path.name} declares no revision"
+        revisions[revision.group(1)] = down.group(1) if down and down.group(1) else None
+
+    assert revisions, "no migrations found"
+    parents = {down for down in revisions.values() if down}
+    heads = sorted(set(revisions) - parents)
+    assert len(heads) == 1, f"expected exactly one head, found {heads}"
+    return heads[0]
+
+
 def test_head_revision_is_applied(repo_root: Path) -> None:
-    assert _query(repo_root, "SELECT version_num FROM alembic_version") == "0001_core_tables"
+    """The running database is at the revision this checkout defines."""
+    assert _query(repo_root, "SELECT version_num FROM alembic_version") == _expected_head(repo_root)
 
 
 def test_vector_extension_is_installed(repo_root: Path) -> None:
