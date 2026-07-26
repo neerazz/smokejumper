@@ -1,15 +1,34 @@
 # Smokejumper — v1 Build Specification
 
 > Level-2 design: everything an implementer (human or agent) needs to build v1 without
-> re-asking architectural questions. The level-1 container view lives in
-> [architecture/](architecture/README.md) — this document refines it into contracts,
-> component behavior, flows, data, and verifiable milestones.
+> re-asking architectural questions. The level-1 container view is the
+> [component diagram](architecture/smokejumper-components.svg); this document refines it into
+> contracts, component behavior, flows, data, and verifiable milestones.
 >
-> **Status: reviewed 2026-07-10; architecture updated 2026-07-25** — the five open decisions
-> were resolved by Neeraj (see §10); no unresolved `⚑` remain. The 2026-07-25 pass added the
-> local observability stack (§2c), per-environment configuration (§2d), and consolidated MCP
-> into one domain (§5.5) — decisions 11–13. Every significant decision is recorded with its
+> **Status: design complete; implementation not started. Reviewed 2026-07-10; architecture
+> updated 2026-07-25.** The five open decisions were resolved by Neeraj (see §10); no
+> unresolved `⚑` remain. The 2026-07-25 pass added the local observability stack (§2c),
+> per-environment configuration (§2d), consolidated MCP into one domain (§5.5), OTel/Phoenix,
+> and the prompt registry—decisions 11–15. Every significant decision is recorded with its
 > alternatives and accepted trade-offs in [docs/adr/](docs/adr/README.md).
+
+## 0. Documentation contract
+
+This file is the **single normative source for v1**: current requirements, configuration
+semantics, prerequisites, operator inputs, build order, commands, and acceptance evidence all
+live here. The other repository documents have narrower jobs:
+
+- [`README.md`](README.md) is a non-normative landing page. It may summarize the purpose and
+  link here, but it must not carry its own setup commands, ports, dependency versions, config
+  values, or milestone requirements.
+- [`docs/adr/`](docs/adr/README.md) records *why* a decision was made and what would reopen it.
+  ADRs are historical rationale, not a second current configuration manual.
+- [`architecture/`](architecture/) visualizes this specification. A diagram that disagrees
+  with this file is stale and must be regenerated or edited.
+
+If two documents disagree about current behavior, **this specification wins and the follower
+is fixed in the same change**. Planned commands are labelled as planned until their milestone
+lands; documentation must not tell a reader to run an artifact that does not exist yet.
 
 ## 1. Purpose & scope
 
@@ -46,7 +65,7 @@ horizontal scaling, UI beyond Slack.
 | Store | **One Postgres 16** + pgvector | unified store consensus: vectors + graph edges + recorder in one DB; no separate graph DB |
 | Knowledge graph | Postgres edge tables, bi-temporal (valid_at / recorded_at, Graphiti-style) | facts change; never lose what we believed at decision time |
 | Memory extraction | LangMem-style extraction in Distiller; **distill, don't append** | append-everything degrades retrieval |
-| LLM | **Swappable by config, zero code**: `ModelProvider` port over LangChain `init_chat_model` provider strings (`anthropic:*`, `openai:*`, `google_genai:*`, `ollama:*`, …), configured **per role** (`worker`, `synthesis`) in `config.yaml`/env. Ships with Anthropic defaults (claude-sonnet-5 workers, claude-opus-4-8 synthesis); switching to Codex/GPT, Gemini, or a local model is an edit to two config lines | hard requirement: any provider, swappable at any time; no provider import outside `ports/model.py` |
+| LLM | **Swappable by config, zero code**: `ModelProvider` port over LangChain `init_chat_model` provider strings (`anthropic:*`, `openai:*`, `google_genai:*`, `ollama:*`, …), configured **per role** (`worker`, `synthesis`) through `config/<env>.yaml` or env overrides. Ships with Anthropic defaults (claude-sonnet-5 workers, claude-opus-4-8 synthesis); switching to Codex/GPT, Gemini, or a local model is an edit to two config values | hard requirement: any provider, swappable at any time; no provider import outside `ports/model.py` |
 | Packaging | `uv` + `pyproject.toml`, src layout, package name `smokejumper` | PyPI name is free |
 | Quality gates | ruff + pyright + pytest; CI = GitHub Actions | |
 
@@ -70,10 +89,14 @@ lanes + adversarial verification (13/13 claims verified at primary sources).
 | Approvals | LangGraph `interrupt()` + PostgresSaver (durable suspend/resume); slack-bolt Block Kit. **HumanLayer rejected — repo self-declares deprecated** | single-use approval tokens, 30-min expiry, token→(thread_id, tool_call) binding |
 | Audit/replay | LangGraph time-travel (`get_state_history`, fork) as replay backbone | JSONL recorder (source of truth) + model-response recording for deterministic replay |
 | Eval | `openevals` (MIT) or `deepeval` (Apache-2.0, pytest-native) | golden cases |
-| Observability UI | **deferred to v2** (Opik = cleanest license; Langfuse = 6 services incl. ClickHouse; Phoenix = ELv2). Optional now: OpenLLMetry library-only OTel spans | — |
+| Observability | OpenTelemetry + OpenInference instrumentation; optional `obs` profile runs Phoenix as the default read-side UI, with Langfuse as an exporter-only swap. JSONL remains authoritative | no runtime dependency on the UI; ADR-0019 amends the earlier UI deferral |
 | Ticketing SDKs | `githubkit` (MIT, async — over PyGithub: LGPL + "seeking maintainers") · `atlassian-python-api` · official `asana` | TicketingPort (verified: no OSS unifier covers Linear+GitHub+Jira+Asana — ticketutil has the wrong provider set) + **Linear adapter via direct GraphQL** (no official Python SDK; community `linear-api` stale) |
 
 ## 2c. Local observability stack (`local` environment only, via compose profiles)
+
+> **Implementation status:** the commands and service names in §§2c–2e are the locked target
+> interface, not a claim that the files already exist. They become runnable at M0 (core), M1
+> (`lab`/`fixtures`), and M6 (`obs`) respectively.
 
 v1 must be verifiable on a laptop, so the alert sources and tool backends the system talks to
 in production need runnable local equivalents. **Not all of them can have one:** Datadog and
@@ -108,8 +131,8 @@ config (§2d), and the `lab`/`fixtures` profiles are refused outside `SMOKEJUMPE
 **Why this is more than dev convenience:** a faultbox-injected incident has *known ground
 truth*, so a run's Conclusion can be scored automatically rather than eyeballed. The lab is
 the eval-corpus factory for §8, not a nicety. Note this is unrelated to decision §10.10
-(LLM-trace observability platforms deferred to v2) — that concerns *our* audit record; this
-concerns *the systems Smokejumper observes*.
+(the original LLM-trace UI deferral, later amended by decision §10.14) — that concerns *our*
+audit record; this concerns *the systems Smokejumper observes*.
 
 ## 2d. Configuration & environments (local · dev · prod)
 
@@ -280,8 +303,9 @@ smokejumper/
 │   ├── agents/                 #   <agent-name>/vN.md
 │   └── CHANGELOG.md
 ├── recipes/*.yaml              # runbook recipes (procedural memory)
+├── scripts/check_doc_contract.py # enforces SPEC-only normative documentation
 ├── fixtures/webhooks/          # golden per-source payloads (§8) + replayer corpus (§2c)
-├── tests/                      # unit + contract + replay tests
+├── tests/                      # unit + contract + replay tests; doc-contract gate exists now
 └── evals/                      # recorded cases for the replay harness
 ```
 
@@ -298,9 +322,11 @@ All contracts are pydantic models in `src/smokejumper/contracts/`, versioned wit
 with every payload.
 
 - **B1 · VerifiedInbound** — transport-level: raw body + headers, passed only after the Auth
-  port validates the source signature (Grafana/DD/PD secret, Slack signing). Stub: AllowAll.
+  port validates the source transport. HTTP webhook adapters verify the source-specific
+  signature or configured shared secret; Slack Socket Mode authenticates with the app token
+  and does not require an HTTP signing secret. Stub: AllowAll.
 - **B2 · AgentEvent** — the single input type intelligence accepts:
-  `{id, schema_version, source(grafana|datadog|pagerduty|generic|slack|scheduled), kind(alert|chat|scheduled), fingerprint, severity(critical|high|medium|low|info), title, body, entities[{type,id}], occurred_at, received_at, dedupe_count, raw}`.
+  `{id, schema_version, source(grafana|datadog|pagerduty|generic|slack|scheduled), kind(alert|chat|scheduled|storm), fingerprint, severity(critical|high|medium|low|info), title, body, entities[{type,id}], occurred_at, received_at, dedupe_count, raw}`.
   Fingerprint = stable hash of (source, alertname/monitor-id, entity set) — NOT of the text.
 - **B3 · retrieve(ctx) → KnowledgeBundle** — `{episodes[], graph_paths[], recipes[], federated[], tokens_used}`; every item carries `{content, source_ref, valid_at, recorded_at, score}`.
 - **B4 · ToolCall / ToolResult** — `{run_id, agent, tool, args, tier(read|privileged)}` →
@@ -321,7 +347,7 @@ with every payload.
 
 ## 5. Component specifications
 
-### 5.1 Receiver — deterministic, no LLM, no writes
+### 5.1 Receiver — deterministic, no LLM, no ticket/action writes
 - All inbound surfaces implement a **`ChannelAdapter` port** (`listen()` → yields raw
   inbound, `send(receipt)`); **v1 ships exactly one chat adapter: Slack.** Telegram
   (`aiogram`) and email (`imap-tools`/`IMAPClient`) are documented adapter stubs behind
@@ -523,7 +549,7 @@ Postgres) · `approvals` (B5) · `tickets` (fingerprint ↔ TicketRef map, provi
 | M3 | Knowledge façade (vectors+graph+recipes) wired into retrieve | bundle appears in trace; precedent case cited |
 | M4 | Parallel specialists + budgets + Governor | 3 agents in parallel; budget-breach test passes |
 | M5 | MCP tiers + approval round-trip | demo noop tool gated end-to-end in test; federated descriptor loads through the same manifest |
-| M6 | Replay/eval harness + Distiller CLI + `obs` profile (§2e) + docs | acceptance suite green; README quickstart works; a run's spans land in Phoenix |
+| M6 | Replay/eval harness + Distiller CLI + `obs` profile (§2e) + docs | acceptance suite green; the canonical quickstart in this specification works; a run's spans land in Phoenix |
 
 Build order is strict; each milestone lands as a reviewed PR.
 
@@ -555,8 +581,9 @@ see §2b):
    are designed-for, post-v1.
 9. **Governance defense-in-depth** — FastMCP middleware is the seam, never the sole
    enforcement; executor re-checks tiers.
-10. **Observability platforms deferred to v2** — JSONL stays the audit source of truth;
-    at most library-only OTel (OpenLLMetry) in v1.
+10. **Original observability decision (amended by 14)** — JSONL stays the audit source of
+    truth. The original platform/UI deferral was later narrowed: decision 14 permits the
+    optional Phoenix read-side while preserving this source-of-truth rule.
 
 Added 2026-07-25 (architecture update):
 
@@ -582,3 +609,302 @@ Added 2026-07-25 (architecture update):
     truth, versions are immutable, the registry references instead of inlining, and every
     `llm_call` records `prompt_ref` + `prompt_sha256` so regressions are attributable and
     replay can assert prompt identity. Platform prompt registries rejected as the store.
+
+## 11. Build prerequisites and operator inputs
+
+This section is the canonical answer to **“what is needed?”** An implementer may build M0 and
+M1 with no external SaaS account. Human-owned credentials first become an exit dependency in
+M2, when a real model call, Slack receipt, and Linear issue must cross the system boundary.
+
+### 11.1 Workstation and repository prerequisites
+
+| Requirement | Minimum contract | Needed by | Preflight |
+|---|---|---:|---|
+| Git | working clone with push access | M0 | `git status --short --branch` |
+| Python | CPython 3.12+ | M0 | `python3.12 --version` |
+| uv | current version able to resolve and lock Python 3.12 dependencies | M0 | `uv --version` |
+| Docker | running daemon with Compose profile support and at least 4 GiB assigned | M0 | `docker info && docker compose version` |
+| Disk | at least 10 GiB free for images, volumes, logs, and eval fixtures | M0 | `df -h .` |
+| Node + npx | only for regenerating the Mermaid SVG; not an app runtime dependency | docs only | `node --version && npx --version` |
+
+The application container listens on `8000` and exposes `GET /healthz`. Compose service names
+and container ports are stable; host ports are overridable so a developer does not have to
+kill unrelated local services:
+
+| Service | Container port | Default host port | Local override |
+|---|---:|---:|---|
+| app | 8000 | 8000 | `APP_HOST_PORT` |
+| postgres | 5432 | 5432 | `POSTGRES_HOST_PORT` |
+| redis | 6379 | 6379 | `REDIS_HOST_PORT` |
+| prometheus | 9090 | 9090 | `PROMETHEUS_HOST_PORT` |
+| alertmanager | 9093 | 9093 | `ALERTMANAGER_HOST_PORT` |
+| grafana | 3000 | 3000 | `GRAFANA_HOST_PORT` |
+| loki | 3100 | 3100 | `LOKI_HOST_PORT` |
+| faultbox | 8080 | 8080 | `FAULTBOX_HOST_PORT` |
+| phoenix UI | 6006 | 6006 | `PHOENIX_HOST_PORT` |
+| OTLP gRPC | 4317 | 4317 | `OTLP_GRPC_HOST_PORT` |
+
+Host-port overrides belong in the untracked local `.env`; service-to-service URLs always use
+the stable Compose service name and container port. `.env.example` contains names and safe
+defaults only—never tokens.
+
+### 11.2 Accounts, credentials, and identifiers
+
+Secret values are injected at runtime and are never committed. Tests use fakes or fixture
+secrets. A missing optional integration disables that adapter; a missing credential for an
+enabled adapter fails boot with the variable name, never during an incident.
+
+| Input | Exact configuration surface | Needed by | Owner action / local fallback |
+|---|---|---:|---|
+| One LLM provider | Standard provider key such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_API_KEY`; role strings in `SMOKEJUMPER__MODEL__WORKER` and `SMOKEJUMPER__MODEL__SYNTHESIS` | M2 | Choose one live provider. Tests use recorded responses; a local Ollama role is allowed. |
+| Spend ceiling | `SMOKEJUMPER__BUDGET__MAX_USD_PER_RUN` | M2 | Explicit in every environment. Local default: `1.00`; dev default: `2.00`; prod has no default and fails closed. |
+| Slack bot token | `SLACK_BOT_TOKEN` (`xoxb-…`) | M2 | Create/install one Slack app in the development workspace. |
+| Slack app token | `SLACK_APP_TOKEN` (`xapp-…`, `connections:write`) | M2 | Enable Socket Mode and create the app-level token. No `SLACK_SIGNING_SECRET` is required for the v1 Socket Mode transport. |
+| Slack channel | `SMOKEJUMPER__SLACK__CHANNEL_ID` | M2 | Choose a development channel and invite the bot. Private-channel support needs `groups:history` and is outside the default scope. |
+| Slack scopes/features | app config, not an env value | M2/M5 | Bot scopes: `app_mentions:read`, `chat:write`, `channels:history`, `reactions:write`; enable interactivity for approval buttons. |
+| Linear API key | `LINEAR_API_KEY` | M2 | A personal API key is the v1 single-tenant choice; OAuth is post-v1 distribution work. |
+| Linear team | `SMOKEJUMPER__TICKETING__TEAM_ID` | M2 | Choose the development team UUID. The adapter discovers and validates workflow-state IDs at boot. |
+| Linear project | `SMOKEJUMPER__TICKETING__PROJECT_ID` | M2 | Optional; omit to create team-level issues. |
+| Webhook verification | `SMOKEJUMPER__WEBHOOKS__<SOURCE>__SECRET` for Grafana, Datadog, PagerDuty, and generic HTTP | M1 tests; dev/prod live intake | Local fixtures use non-secret test values. Alertmanager has no signature and is accepted only from the configured network allowlist. |
+| Postgres / Redis | `SMOKEJUMPER__DATABASE__URL`, `SMOKEJUMPER__REDIS__URL` | M0 | Compose supplies local values. dev/prod need managed endpoints, credentials, and TLS policy. |
+| Prometheus / Loki | `SMOKEJUMPER__TOOLS__PROMETHEUS_URL`, `SMOKEJUMPER__TOOLS__LOKI_URL` plus optional auth headers | M1/M5 | Compose supplies local URLs. dev/prod require real backend endpoints and read-only credentials. |
+| Federated MCP server | descriptor endpoint, auth reference, and tool allowlist under `mcp/federated/descriptors/` | M5 | Local uses a stub descriptor. Real endpoints are not required for v1 acceptance. |
+| OTLP exporter | `OTEL_EXPORTER_OTLP_ENDPOINT` plus backend auth if needed | M6 | Local Phoenix is credential-free. A remote backend is optional. |
+
+Official setup references used to lock these inputs:
+
+- Slack Socket Mode: <https://docs.slack.dev/tools/bolt-python/concepts/socket-mode/>
+- Linear GraphQL authentication and team IDs: <https://linear.app/developers/graphql>
+- Docker Compose profiles: <https://docs.docker.com/compose/how-tos/profiles/>
+- Pydantic settings sources: <https://docs.pydantic.dev/latest/concepts/pydantic_settings/>
+
+### 11.3 Owner checklist—the only inputs an agent cannot manufacture
+
+- [ ] **By M2:** choose the live LLM provider and exact worker/synthesis model strings; provide
+  one provider key through the runtime environment and confirm the local spend ceiling.
+- [ ] **By M2:** create the Slack app, enable Socket Mode + interactivity, apply the four bot
+  scopes above, install it, invite it to the development channel, and provide the two tokens
+  plus channel ID through the runtime environment.
+- [ ] **By M2:** choose the Linear development team; provide a personal API key and team UUID.
+- [ ] **Only for dev/prod:** provide managed Postgres/Redis, read-only Prometheus/Loki, live
+  webhook secrets/allowlists, and the real implementations selected for security-relevant
+  ports.
+
+Datadog and PagerDuty accounts, public tunnels, a production secret manager, real privileged
+tools, and a federated MCP server are **not prerequisites for local v1 acceptance**.
+
+### 11.4 Defaults locked for implementation
+
+These low-cost details were previously implicit; they are now explicit so an implementer does
+not have to invent them:
+
+1. `SPEC.md` owns all current build/run facts; README never owns a parallel quickstart.
+2. v1 acceptance targets the local single-tenant deployment. `prod` config is a fail-closed
+   contract and intentionally will not boot until real Auth/Governance/Platform adapters are
+   supplied; building those adapters is not silently added to v1.
+3. Slack v1 is Socket Mode only. The app token authenticates the WebSocket transport; there is
+   no HTTP Slack event endpoint and no Slack signing-secret requirement.
+4. Linear uses a personal API key and one configured team. OAuth/multi-workspace installation
+   is post-v1.
+5. `AgentEvent.kind` includes `storm`; a coalesced storm is not disguised as a normal alert.
+6. Generic HTTP webhooks use `X-Smokejumper-Signature: sha256=<hex>` over the raw request body
+   with the configured shared secret. Vendor adapters follow each vendor's documented scheme.
+7. Approval tokens are opaque 256-bit random values; only a hash is stored with the bound
+   `(thread_id, tool_call)` and expiry. Consumption is one atomic database update, so no token
+   signing key is required.
+8. Exact third-party versions are not guessed in prose. M0 verifies official compatibility,
+   pins them in `pyproject.toml`, and commits `uv.lock`; the lockfile is executable truth.
+
+## 12. Executable implementation plan
+
+Implementation is seven milestone PRs in the strict M0→M6 order. Every work packet uses the
+same loop: **write one behavioral test → run it and observe the expected failure → implement
+the minimum → run the focused test → run milestone gates → commit**. Source-bound framework
+calls are checked against current official documentation before code is written; URLs and
+non-obvious lifecycle constraints go in the implementing module's docstring or ADR reference.
+
+### Universal gates and evidence
+
+Run after every packet that changes Python; all must exit 0 before its commit:
+
+```bash
+uv run pytest -q
+uv run ruff check .
+uv run pyright
+git diff --check
+```
+
+Compose-changing packets additionally run `docker compose config`; profile packets run the
+specific profile health check. Each milestone receipt records: commit SHA, changed paths,
+focused RED/GREEN test, full gate output, runtime probe, and any disabled external adapter.
+
+### M0—foundation, contracts, configuration, and core runtime
+
+**M0.1 · Package and CI skeleton**
+- Create: `pyproject.toml`, `uv.lock`, `Dockerfile`, `.dockerignore`, `.gitignore`,
+  `src/smokejumper/__init__.py`, `src/smokejumper/cli.py`, `tests/test_package.py`,
+  `.github/workflows/ci.yml`; wire the existing `scripts/check_doc_contract.py` and
+  `tests/test_doc_contract.py` into CI.
+- RED: package import and `smokejumper --help` tests fail because the package does not exist.
+- GREEN: src-layout package installs through uv; CI runs pytest, ruff, pyright, and the
+  documentation-contract gate on Python 3.12. Commit: `chore: scaffold Python package and CI`.
+
+**M0.2 · One validated settings object**
+- Create: `src/smokejumper/config.py`, `config/base.yaml`, `config/local.yaml`,
+  `config/dev.yaml`, `config/prod.yaml`, `.env.example`, `tests/test_config.py`.
+- RED: precedence tests cover defaults < base < env file < env vars < CLI; malformed config,
+  prod stubs, prod missing ceiling, and non-local lab profiles all fail boot.
+- GREEN: implement pydantic-settings custom sources and one startup validator. Commit:
+  `feat: add layered fail-closed configuration`.
+
+**M0.3 · Boundary contracts**
+- Create focused modules under `src/smokejumper/contracts/` for inbound, events, knowledge,
+  tools, approvals, conclusions, audit, assignments, platform, and ticketing; add matching
+  `tests/contracts/` files and JSON fixtures.
+- RED/GREEN one B-contract at a time: valid JSON round-trip, invalid enum/range rejected,
+  `schema_version` required, raw inbound bytes encoded explicitly, and B7 absent by design.
+- Commit in coherent groups, ending with `feat: define versioned boundary contracts`.
+
+**M0.4 · Hexagonal ports and environment stubs**
+- Create: `src/smokejumper/ports/{auth,governance,tenancy,model,platform,ticketing,memory,channel}.py`,
+  `src/smokejumper/ports/stubs.py`, `tests/ports/test_stubs.py`.
+- RED: local accepts loud stubs; dev warns; prod rejects every security-relevant stub.
+- GREEN: protocols/ABCs plus smallest stubs only. Commit: `feat: add environment-gated ports`.
+
+**M0.5 · App, database migrations, and default Compose stack**
+- Create: `src/smokejumper/app.py`, `src/smokejumper/db.py`, `alembic.ini`, `migrations/`,
+  `docker-compose.yml`, `tests/test_health.py`.
+- RED: `/healthz` and database readiness fail before app/services exist.
+- GREEN: app + Postgres 16/pgvector + Redis start with health checks; schema migration table
+  exists; app reports dependency health without leaking credentials. Commit:
+  `feat: boot core compose stack`.
+
+**M0 exit evidence**
+```bash
+uv run pytest -q
+uv run ruff check .
+uv run pyright
+docker compose config
+docker compose up -d --build
+curl --fail http://localhost:${APP_HOST_PORT:-8000}/healthz
+docker compose run --rm \
+  -e SMOKEJUMPER_ENV=prod \
+  -e SMOKEJUMPER__BUDGET__MAX_USD_PER_RUN= \
+  app smokejumper check-config  # expected non-zero: stubs + ceiling
+docker compose down -v
+```
+
+### M1—recorder, receiver, queue, and local incident lab
+
+1. **Recorder first:** create `recorder/writer.py`, `recorder/broadcast.py`, runs-index
+   migration, and tests for append-only JSONL, monotonic per-run `seq`, process-unique files,
+   byte offsets, failure counter, and `logs --follow`.
+2. **Inbound persistence:** add events/quarantine migration and repository; test 401+audit for
+   unverifiable payloads and 202+quarantine for unparseable payloads.
+3. **Normalizers:** implement generic, Grafana, Datadog, PagerDuty, and Alertmanager adapters
+   from `fixtures/webhooks/`; each source gets golden valid/invalid/signature/severity tests.
+4. **Fingerprint/dedupe/storm:** test canonical entity ordering, stable hash, 15-minute dedupe,
+   20-vs-21 fingerprint boundary, five-minute reset, and one `kind=storm` enqueue.
+5. **Redis Streams:** create producer/consumer group, at-least-once reclaim, event-id
+   idempotency, and max-in-flight=3 tests.
+6. **Lab + fixtures profiles:** create `compose/{prometheus,alertmanager,grafana,loki,faultbox}/`,
+   replayer, provisioning, and health probes. A real Alertmanager/Grafana alert must reach the
+   Redis stream; Datadog/PagerDuty fixtures require no SaaS account.
+
+Commit each numbered packet separately. M1 exits only when the focused storm test and the real
+lab alert receipt are both retained as evidence.
+
+### M2—one complete intelligence-to-action path
+
+1. **Prompt + registry seed:** create immutable `prompts/supervisor/{plan,synthesize}/v1.md`,
+   `prompts/agents/metrics-analyst/v1.md`, `prompts/CHANGELOG.md`, and
+   `registry/agents/metrics-analyst.yaml`; validate prompt refs and hashes at boot.
+2. **ModelProvider:** implement the LangChain `init_chat_model` seam only in
+   `ports/model.py`; record model, prompt ref/hash, response, usage, latency, and cost. Tests
+   use a fake provider and recorded responses before any live call.
+3. **Single-specialist graph:** implement intake→retrieve(empty bundle)→plan→dispatch one
+   Metrics Analyst→aggregate→synthesize B6 with Postgres checkpointing and restart test.
+4. **Slack adapter:** implement async Bolt Socket Mode mention listener, thread receipts, and
+   button callback plumbing behind `ChannelAdapter`; contract tests use fake Slack clients.
+5. **Linear + Actions:** implement provider-neutral TicketingPort conformance tests, direct
+   GraphQL adapter, fingerprint lookup, create-vs-update, and `(fingerprint, run_id)`
+   idempotency. Always inspect GraphQL `errors` even on HTTP 200.
+6. **Golden end-to-end:** one fixture alert produces one recorded run, one B6 Conclusion, one
+   Linear issue, and one Slack receipt; replaying the delivery updates rather than duplicates.
+
+M2 cannot claim live completion until the three owner inputs in §11.3 exist. All earlier
+packets remain buildable with fakes.
+
+### M3—local knowledge and GraphRAG retrieval
+
+1. Add migrations for `episodes`, `kg_nodes`, and `kg_edges` with pgvector and bi-temporal
+   constraints; test current-time and as-believed-at-time queries.
+2. Implement `MemoryPort` Postgres adapter: episode similarity, ≤2-hop graph expansion, and
+   deterministic invalidation without deleting historical belief.
+3. Implement recipe loading/validation from `recipes/*.yaml` and trigger-tag matching.
+4. Compose `retrieve()` under a token/item budget into B3 with source refs and scores; the
+   federated list is empty through a governed stub until M5—Knowledge never opens an MCP
+   connection itself.
+5. Re-run M2 golden case seeded with two episodes + one recipe; B6 must cite the returned
+   source refs and the recorder must contain the exact bundle.
+
+### M4—parallel specialists, budgets, and Governor
+
+1. Add immutable prompts + registry entries for Log Analyst and Change Auditor; keep DB/Code/
+   Precedent agents present but disabled. Validate tool allowlists and budget fields.
+2. Dispatch three B11 Assignments concurrently and aggregate findings in registry-stable order;
+   prove parallelism with a barrier test, not wall-clock guessing.
+3. Add call-count middleware plus the hand-written token/USD ledger; breach must synthesize an
+   `inconclusive` B6 with partial findings.
+4. Implement provider circuit breaker, max in-flight, queue-depth storm brake, and tests at
+   every threshold boundary.
+5. Add APScheduler jobs for registry sync and approval expiry; scheduled investigations remain
+   recipe-driven and produce normal B2 events.
+
+### M5—single MCP governance seam and approval round-trip
+
+1. Create `mcp/manifest.yaml` schema and loader; boot fails for unknown tools, duplicate names,
+   absent tiers, or registry tools missing from the central manifest.
+2. Implement FastMCP gateway middleware and a separate executor-tier check; test that bypassing
+   either one alone still cannot execute a privileged tool.
+3. Implement in-process read servers for Prometheus metrics, Loki logs, knowledge search/
+   expansion, Linear read, recipe read, and fixture platform assets with bounded query shapes.
+4. Add `demo_destructive_noop` only under test configuration; production privileged manifest
+   remains empty.
+5. Implement opaque approval-token mint/consume, 30-minute expiry, Slack buttons, LangGraph
+   interrupt/resume, restart durability, deny, expiry, replay, and double-click race tests.
+6. Implement federated descriptors and loader through the same gateway; prove a descriptor
+   cannot import a tool absent from the central manifest or widen its tier.
+
+### M6—replay, eval, Distiller, traces, and release proof
+
+1. Implement deterministic `replay <run_id>` from JSONL + runs index with recorded model/tool
+   outputs, then live eval mode as an explicit opt-in.
+2. Add five `evals/*.json` cases and `smokejumper eval`; CI requires deterministic ≥4/5 and
+   reports per-agent hit rate without calling a live model.
+3. Implement manual Distiller CLI: episode and graph candidates commit transactionally; recipe
+   candidates land only in `recipes/drafts/` for human promotion.
+4. Add OpenTelemetry/OpenInference instrumentation only at ModelProvider and MCP gateway;
+   configure Phoenix under `obs`; verify JSONL remains complete with Phoenix stopped.
+5. Run the faultbox release case from injected fault through alert, parallel investigation,
+   grounded B6, one Linear ticket, Slack receipt, JSONL replay, and matching ground truth.
+6. Replace any remaining “planned” labels in this specification only after their commands work;
+   README stays a landing page and links here rather than copying the quickstart.
+
+### Final v1 acceptance command set
+
+These commands are **planned until M6 lands**. At release they become the canonical quickstart
+and must be executed exactly as written before the status changes from design to implemented:
+
+```bash
+cp .env.example .env                    # fill only the M2 owner inputs from §11.3
+docker compose up -d --build
+docker compose --profile lab --profile fixtures --profile obs up -d
+uv run smokejumper fixtures replay --source grafana
+uv run smokejumper eval                 # expected: at least 4/5 deterministic cases match
+uv run smokejumper replay <run_id>      # expected: same B6 with recorded model/tool outputs
+```
+
+Release proof is not the command transcript alone: retain the run ID, one-ticket idempotency
+receipt, Slack thread timestamp, audit file + byte range, eval report, Phoenix trace ID, and
+the faultbox expected-vs-actual conclusion comparison.

@@ -1,5 +1,9 @@
 # Architecture Decision Records
 
+These records explain **why** decisions were made and what would reopen them. The current
+normative build/run contract lives only in [`SPEC.md`](../../SPEC.md); an ADR is historical
+rationale and does not override a later, amended value in the specification.
+
 One record per significant decision, with the options considered, the trade-off we knowingly
 accepted, and the condition that should reopen it. Format: lightweight MADR.
 
