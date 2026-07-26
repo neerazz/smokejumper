@@ -41,7 +41,7 @@ from pydantic_settings import (
 )
 
 Environment = Literal["local", "dev", "prod"]
-ComposeProfile = Literal["lab", "fixtures", "obs"]
+ComposeProfile = Literal["lab", "obs"]
 
 ENV_VAR: Final = "SMOKEJUMPER_ENV"
 DEFAULT_ENV: Final[Environment] = "local"
@@ -52,8 +52,11 @@ DEFAULT_ENV: Final[Environment] = "local"
 # another environment's file, so the ambiguous spelling is refused outright.
 _AMBIGUOUS_ENV_VAR: Final = "SMOKEJUMPER__ENV"
 
-# Local-only compose profiles: the faultbox exists to break things (SPEC 2c).
-LOCAL_ONLY_PROFILES: Final[frozenset[str]] = frozenset({"lab", "fixtures"})
+# Local-only compose profile: the faultbox exists to break things (SPEC 2c).
+# `obs` is absent because Phoenix is safe to run anywhere. The `fixtures`
+# profile was removed in the 2026-07-26 subtraction pass: replay is a CLI
+# command run from the app container, not a service.
+LOCAL_ONLY_PROFILES: Final[frozenset[str]] = frozenset({"lab"})
 
 # The substitute value for each port that `prod` refuses (SPEC 5.10). `tenancy`
 # is deliberately absent: `SingleTenant` is the v1 implementation and not a stub,
@@ -103,11 +106,24 @@ BARE_SECRET_VARS: Final[Mapping[str, tuple[str, str]]] = {
 # anything else unrecognized is a typo and fails boot.
 COMPOSE_ONLY_SUFFIX: Final = "_host_port"
 
-CONFIG_DIR: Path = Path(__file__).resolve().parents[2] / "config"
+# `parents[2]` is the repository root for an editable install. The container
+# installs the package non-editable into a virtualenv, where that path lands
+# inside site-packages and no `config/` exists, so a deployment states the
+# directory outright. This is the one environment read that happens at import
+# time, because it decides where every other layer is read from.
+CONFIG_DIR: Path = Path(
+    os.environ.get("SMOKEJUMPER_CONFIG_DIR") or Path(__file__).resolve().parents[2] / "config"
+)
 
 
-class ConfigError(Exception):
-    """Boot-time configuration failure, phrased so an operator knows the next action."""
+class ConfigError(ValueError):
+    """Boot-time configuration failure, phrased so an operator knows the next action.
+
+    Subclasses `ValueError` because it reports an invalid value, and because a
+    caller guarding a boundary with `except ValueError` — `smokejumper
+    check-config` among them — then reports it as a message instead of letting a
+    traceback reach an operator running a preflight check.
+    """
 
 
 class DatabaseSettings(BaseModel):

@@ -798,7 +798,7 @@ per-developer opt-in in the git-ignored `docker-compose.override.yml` (§2d), ne
 default. Host-port overrides belong in the untracked local `.env`; service-to-service URLs
 always use stable service names and container ports.
 
-**Preflight.** `python3 scripts/check_host_ports.py [--profiles lab,fixtures,obs]` checks only
+**Preflight.** `python3 scripts/check_host_ports.py [--profiles lab,obs]` checks only
 the ports the requested profiles publish, names the owning service and — where discoverable —
 the local process holding the port, prints the exact override variable to set (for example
 `PHOENIX_HOST_PORT=16006`), and exits non-zero so it can gate. It imports only the standard

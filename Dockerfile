@@ -24,6 +24,11 @@ ENV PATH=/app/.venv/bin:$PATH \
 COPY --from=build /app/.venv /app/.venv
 COPY alembic.ini ./
 COPY migrations ./migrations
+# `config/` is data the settings object reads, not code. It has to be copied
+# explicitly because --no-editable installs the package into the virtualenv,
+# where the package-relative default would resolve inside site-packages.
+COPY config ./config
+ENV SMOKEJUMPER_CONFIG_DIR=/app/config
 USER smokejumper
 EXPOSE 8000
 # v1 is a single instance (SPEC 1), so the app container is the only writer and

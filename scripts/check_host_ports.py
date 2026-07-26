@@ -46,9 +46,11 @@ INVENTORY = (
     PublishedPort("obs", "phoenix", 6006, 6006, "PHOENIX_HOST_PORT"),
 )
 
-# `fixtures` starts only the replayer, which has no listener. It is selectable
-# but contributes no ports, so it cannot be derived from INVENTORY.
-SELECTABLE_PROFILES = ("lab", "fixtures", "obs")
+# Derived from INVENTORY would be wrong the moment a profile publishes nothing,
+# so the selectable set is stated. `fixtures` is absent deliberately: the
+# 2026-07-26 subtraction pass removed it, and replay is now a CLI command run
+# from the app container.
+SELECTABLE_PROFILES = ("lab", "obs")
 
 # Services started with no `--profile` flag. Always checked.
 CORE_PROFILE = "default"

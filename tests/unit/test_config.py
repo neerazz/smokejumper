@@ -212,18 +212,26 @@ def test_prod_requires_an_explicit_spend_ceiling(
     assert "rather than defaulting to unlimited" in message
 
 
-def test_lab_and_fixtures_profiles_are_local_only(config_dir: Path) -> None:
+def test_lab_profile_is_local_only(config_dir: Path) -> None:
     for env in ("dev", "prod"):
         with pytest.raises(ConfigError) as raised:
-            load_settings(env=env, compose_profiles="lab,fixtures")
+            load_settings(env=env, compose_profiles="lab")
         message = str(raised.value)
-        assert "fixtures, lab are local-only" in message
+        assert "lab are local-only" in message
         assert "COMPOSE_PROFILES" in message
         assert f"SMOKEJUMPER_ENV={env}" in message
 
-    assert load_settings(compose_profiles="lab,fixtures").compose_profiles == frozenset(
-        {"lab", "fixtures"}
-    )
+    assert load_settings(compose_profiles="lab").compose_profiles == frozenset({"lab"})
+
+
+def test_the_removed_fixtures_profile_is_refused(config_dir: Path) -> None:
+    """The 2026-07-26 subtraction pass deleted it; replay is a CLI command now.
+
+    Asserted rather than merely absent, so reintroducing the name has to be a
+    deliberate act instead of a plausible-looking typo that silently does nothing.
+    """
+    with pytest.raises(ConfigError, match=r"COMPOSE_PROFILES.*'lab' or 'obs'"):
+        load_settings(compose_profiles="lab,fixtures")
 
 
 def test_obs_profile_is_allowed_outside_local(
@@ -246,9 +254,13 @@ def test_obs_profile_is_allowed_outside_local(
 def test_compose_profiles_read_dockers_own_variable(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """One variable for compose and the app, so they cannot disagree."""
-    monkeypatch.setenv("COMPOSE_PROFILES", "lab, fixtures")
-    assert load_settings().compose_profiles == frozenset({"lab", "fixtures"})
+    """One variable for compose and the app, so they cannot disagree.
+
+    The spacing is deliberate: compose accepts `lab, obs` and so must the app,
+    or the same string would mean two different things to the two readers.
+    """
+    monkeypatch.setenv("COMPOSE_PROFILES", "lab, obs")
+    assert load_settings().compose_profiles == frozenset({"lab", "obs"})
 
 
 def test_enabled_adapter_without_its_credential_fails_boot(config_dir: Path) -> None:

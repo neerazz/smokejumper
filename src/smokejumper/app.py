@@ -11,7 +11,6 @@ Webhook routes arrive with the Receiver in M1 (SPEC 5.1).
 from __future__ import annotations
 
 import asyncio
-import os
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -75,22 +74,18 @@ def create_app(*, database_url: str, redis_url: str) -> FastAPI:
 def app_from_env() -> FastAPI:
     """Composition root for `uvicorn --factory smokejumper.app:app_from_env`.
 
-    This is the only place in the application that reads the process
-    environment. It resolves the two URLs SPEC 11.3 names and fails immediately
-    if either is absent, because a missing database URL must surface at boot
-    rather than at minute nine of an incident (SPEC 2d).
+    Configuration is assembled and validated by `smokejumper.config`, which is
+    the single reader of the process environment (SPEC 2d). Every layered source
+    and every fail-closed gate therefore applies to a container boot, which
+    reading two variables directly here would have bypassed.
 
-    The layered settings object (SPEC 2d, M0.2) replaces the two lookups below
-    once it exists; `create_app` keeps its signature either way.
+    Imported inside the function so that `create_app` stays usable by a test
+    that never touches configuration.
     """
+    from smokejumper.config import load_settings
+
+    settings = load_settings()
     return create_app(
-        database_url=_required_env("SMOKEJUMPER__DATABASE__URL"),
-        redis_url=_required_env("SMOKEJUMPER__REDIS__URL"),
+        database_url=str(settings.database.url),
+        redis_url=str(settings.redis.url),
     )
-
-
-def _required_env(name: str) -> str:
-    value = os.environ.get(name)
-    if not value:
-        raise RuntimeError(f"{name} must be set")
-    return value

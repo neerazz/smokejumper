@@ -48,6 +48,10 @@ services:
       SMOKEJUMPER_ENV: ${SMOKEJUMPER_ENV:-local}
       SMOKEJUMPER__DATABASE__URL: postgresql+psycopg://smokejumper:${POSTGRES_PASSWORD:-smokejumper}@postgres:5432/smokejumper
       SMOKEJUMPER__REDIS__URL: redis://redis:6379/0
+      # Compose's own variable, forwarded so the app sees the profiles it was
+      # actually started with. Without it the rule refusing `lab` outside
+      # `local` (SPEC 2d) inspects an empty list and passes vacuously.
+      COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
     # The only host-published port in the stack, and loopback-only: an alert
     # webhook receiver bound to 0.0.0.0 is reachable from the local network.
     ports:

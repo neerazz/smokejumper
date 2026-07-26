@@ -98,11 +98,17 @@ class ProfileSelectionTest(unittest.TestCase):
             [port.service for port in checker.selected_ports(["obs"])], ["app", "phoenix"]
         )
 
-    def test_fixtures_publishes_nothing_of_its_own(self) -> None:
-        self.assertEqual(
-            checker.selected_ports(["fixtures"]),
-            checker.selected_ports(()),
-        )
+    def test_the_removed_fixtures_profile_is_rejected(self) -> None:
+        """Deleted in the 2026-07-26 subtraction pass; asking for it must be an error.
+
+        Asserted on `parse_profiles`, which is where an unknown name is refused.
+        `selected_ports` only filters, so it would answer a request for a
+        nonexistent profile with the core ports and no complaint.
+        """
+        self.assertNotIn("fixtures", checker.SELECTABLE_PROFILES)
+        with self.assertRaises(ValueError) as raised:
+            checker.parse_profiles("lab,fixtures")
+        self.assertIn("fixtures", str(raised.exception))
 
     def test_all_profiles_together_check_every_published_port(self) -> None:
         self.assertEqual(
