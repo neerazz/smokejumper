@@ -1,0 +1,31 @@
+# Nothing here belongs in the runtime image. README.md and LICENSE are NOT
+# excluded: pyproject.toml references both, so the wheel build needs them.
+.git
+.gitignore
+.github
+.venv
+venv
+.artifacts
+logs
+.env
+.env.*
+docker-compose*.yml
+Dockerfile
+.dockerignore
+
+# Tests, docs, and diagrams ship with the repository, never with the image.
+tests
+docs
+architecture
+scripts
+SPEC.md
+
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.uv-cache
+.mypy_cache
+.pyright
+.coverage
+.DS_Store
