@@ -82,7 +82,7 @@ lanes + adversarial verification (13/13 claims verified at primary sources).
 | Slack channel | `slack-bolt` (MIT, Socket Mode first-class) | handlers only |
 | Telegram channel (post-v1) | `aiogram` (MIT, async) — chosen over python-telegram-bot (LGPL) | adapter glue |
 | Email channel (post-v1) | `imap-tools`/`IMAPClient` (IDLE) + `aiosmtplib` | OAuth2 token handling |
-| Alert intake | — none exists: no pip-installable Grafana/Datadog/PagerDuty normalizer; Grafana OnCall archived 2026; Keep is a platform (MIT core), not a library | per-source normalizers (**seed from Alerta's Apache-2.0 `alerta/webhooks/` parsers**) + per-source HMAC verification |
+| Alert intake | — none exists: no pip-installable Grafana/Datadog/PagerDuty normalizer; Grafana OnCall archived 2026; Keep is a platform (MIT core), not a library | per-source normalizers (**seed from Alerta's Apache-2.0 `alerta/webhooks/` parsers**) + per-source verification, using whatever scheme each vendor offers (§11.5.6 — not all of them sign) |
 | Queue | `redis-py` Streams + consumer groups (sufficient; taskiq only if we later want retry/DI abstractions; arq/celery/streaq rejected) | fingerprint dedupe window |
 | Loop guards | LangChain v1 `ModelCallLimitMiddleware` + `ToolCallLimitMiddleware` (call-count caps) | token/$ spend ledger + RPM/TPM throttle (no OSS equivalent in Python) |
 | Memory/GraphRAG | — Graphiti rejected (Neo4j/FalkorDB only — violates one-Postgres). Cognee 1.x verified to run GraphRAG on one Postgres with opt-in bi-temporal, but red-team verdict: don't adopt at HEAD for an audit-critical tool | bi-temporal `episodes` on Postgres+pgvector using **Graphiti's data model as blueprint**, behind a `MemoryPort`; edge tables and graph traversal are post-v1 (Cognee/LightRAG become optional adapters after a pinned-version spike) |
@@ -103,8 +103,8 @@ v1 must be verifiable on a laptop, so the alert sources and tool backends the sy
 in production need runnable local equivalents. **Not all of them can have one:** Datadog and
 PagerDuty are SaaS — there is no local Datadog, and having their cloud webhook back to a
 laptop would need a public tunnel. Those two are exercised by **replaying recorded payloads**
-at the Receiver, which is precisely what the normalizers and per-source HMAC verification
-need tested anyway.
+at the Receiver, which is precisely what the normalizers and per-source verification need tested
+anyway.
 
 | Purpose | Service | Profile | Notes |
 |---|---|---|---|
@@ -285,8 +285,8 @@ smokejumper/
 │   └── faultbox/               # injectable-fault sample app
 ├── src/smokejumper/
 │   ├── contracts/              # B1–B11 pydantic models — THE source of truth
-│   ├── receiver/               # FastAPI app: webhook routes, verify port, normalize, dedupe
-│   ├── queue/                  # Redis Streams producer/consumer
+│   ├── receiver/               # webhook routes, per-source verification, normalizers, dedupe
+│   ├── queue/                  # Redis Streams producer (consumer arrives with M2)
 │   ├── intelligence/           # LangGraph graph, supervisor, registry loader, sub-agent runner
 │   ├── knowledge/              # facade, vector store, recipes (federates via mcp/)
 │   ├── mcp/                    # THE MCP domain — one client, one governance seam (§5.5)
@@ -591,7 +591,8 @@ account and no live model.
 
 - **Contract tests** — every B-model round-trips JSON, invalid enums and out-of-range values are
   rejected, and `schema_version` is required. Golden payloads per webhook source in
-  `fixtures/webhooks/`.
+  `fixtures/webhooks/`; only `datadog.json` exists so far, and each remaining normalizer lands with
+  its own.
 - **Component tests** — fingerprint stability under entity reordering; the dedupe and coalesce
   truth table including the 20-vs-21 fingerprint storm boundary; double delivery ⇒ one ticket;
   approval expiry ⇒ deny; budget breach ⇒ `inconclusive` B6 carrying partial findings.
@@ -636,7 +637,10 @@ complete when §12's exit evidence for it exists.
   their environment gates, the three-service Compose stack, first migration, `/healthz`, and a
   `prod` that refuses to start unsafe.
 - **M1** — an alert becomes a recorded, queued event. Flight Recorder, Receiver and normalizers,
-  fingerprint/dedupe/storm, Redis Streams, and the `lab` profile.
+  fingerprint/dedupe/storm, Redis Streams, and the `lab` profile. *Partly landed: the Datadog
+  route, its verification, dedupe, and the stream producer work end to end (§12 M1 packets 2–5 for
+  Datadog only). The recorder, the other four normalizers, storm coalescing, and the `lab` profile
+  are not built.*
 - **M2** — one alert reaches one ticket. `ModelProvider` against the chosen provider, supervisor
   graph, one specialist, Slack receipt, Linear create-vs-update.
 - **M3** — retrieval is real. `episodes` similarity plus recipes behind `MemoryPort`, cited in B6.
@@ -1099,15 +1103,26 @@ docker compose down
    JSONL, monotonic per-run `seq`, process-unique files, byte offsets, failure counter.
    `runs latest --format id` prints one run id and nothing else, because the acceptance set
    consumes its stdout.
-2. **Inbound persistence:** the events repository and its quarantine path; 401 with an audit
-   entry for an unverifiable payload, 202 with a quarantine row for an unparseable one.
-3. **Normalizers:** generic, Grafana, Datadog, PagerDuty, and Alertmanager adapters built from
-   `fixtures/webhooks/`; per source a golden valid payload, an invalid one, a signature case, and
-   a severity-mapping case. Grafana is a payload format here, not a service Smokejumper runs.
-4. **Fingerprint, dedupe, storm:** canonical entity ordering, stable hash, the 15-minute window,
-   the 20-vs-21 fingerprint boundary, the five-minute reset, and exactly one `kind=storm` enqueue.
-5. **Redis Streams:** producer, the `intelligence` consumer group, at-least-once reclaim,
-   `event.id` idempotency, max in-flight 3.
+2. **Inbound persistence — LANDED for Datadog:** `receiver/repository.py` with the quarantine path;
+   401 for an unverifiable payload and 202 with a quarantine row for an unparseable one.
+   **Outstanding:** the 401 currently only logs. The *audit entry* it owes needs the recorder from
+   packet 1, so a rejected delivery is visible in the log and in no durable record yet.
+3. **Normalizers — Datadog LANDED, four outstanding:** generic, Grafana, PagerDuty, and
+   Alertmanager adapters built from `fixtures/webhooks/`; per source a golden valid payload, an
+   invalid one, a verification case, and a severity-mapping case. Grafana is a payload format here,
+   not a service Smokejumper runs. `receiver/normalizers/datadog.py` is the pattern the other four
+   follow: `$ALERT_ID` is the `source_event_key` and never `$AGGREG_KEY`, which Datadog rotates per
+   alert episode; and only an allowlist of identity-bearing tags becomes entities, because entities
+   feed the fingerprint and a volatile tag would re-identify an incident mid-flight.
+4. **Fingerprint, dedupe, storm — dedupe LANDED, storm outstanding:** canonical entity ordering,
+   stable hash, and the 15-minute window are done and proven under concurrency; `admit()` takes a
+   per-fingerprint advisory lock, because the window is time-relative and so cannot be a partial
+   unique index. **Outstanding:** the 20-vs-21 fingerprint storm boundary, the five-minute reset,
+   and the single `kind=storm` enqueue.
+5. **Redis Streams — producer LANDED, consumer outstanding:** `queue/producer.py` XADDs to
+   `agentevents` with a bounded `maxlen`. **Outstanding:** the `intelligence` consumer group,
+   at-least-once reclaim, `event.id` idempotency, and max in-flight 3. Nothing reads the stream
+   yet, so an accepted alert is durably queued and waits.
 6. **`lab` profile:** `compose/{prometheus,alertmanager,loki,promtail,faultbox}/` and their
    provisioning. Prometheus rules fire at Alertmanager, which posts directly to
    `/webhooks/alertmanager`; no dashboard sits on the alert path. Fix the faultbox's
