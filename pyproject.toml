@@ -1,0 +1,86 @@
+[project]
+name = "smokejumper"
+version = "0.1.0"
+description = "An agentic SRE that parachutes into incidents."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.12"
+
+# M0 dependency set only. Later milestones add their own:
+#   M2 -> langgraph, langgraph-checkpoint-postgres, slack-bolt, provider SDK
+#   M5 -> fastmcp, langchain-mcp-adapters
+#   M6 -> opentelemetry-sdk, openinference instrumentation
+# Adding a dependency is a deliberate act tied to a milestone, not a convenience.
+dependencies = [
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "pyyaml>=6.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "psycopg[binary,pool]>=3.2",
+    "alembic>=1.14",
+    "pgvector>=0.3.6",
+    "redis>=5.2",
+    "typer>=0.15",
+]
+
+[project.scripts]
+smokejumper = "smokejumper.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.28",
+    "ruff>=0.8",
+    "pyright>=1.1.390",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/smokejumper"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # bugbear
+    "UP",     # pyupgrade
+    "ASYNC",  # async correctness
+    "S",      # bandit
+    "TID",    # banned/relative imports
+    "RUF",
+]
+ignore = [
+    "S101",  # pytest needs assert
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Fixture secrets are not real secrets; subprocess calls in tests invoke our own
+# scripts with interpreter-controlled arguments, not untrusted input.
+"tests/**" = ["S105", "S106", "S603"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers --strict-config"
+markers = [
+    "integration: requires Postgres and Redis (docker compose up)",
+    "e2e: requires the full stack and a profile",
+]
+
+[tool.pyright]
+include = ["src", "tests", "scripts"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+reportMissingTypeStubs = false
