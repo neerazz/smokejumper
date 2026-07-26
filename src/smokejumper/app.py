@@ -11,6 +11,7 @@ Webhook routes arrive with the Receiver in M1 (SPEC 5.1).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
@@ -23,9 +24,10 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 
 from smokejumper.persistence.database import check_connection, create_engine
+from smokejumper.queue.producer import STREAM
 from smokejumper.receiver.routes import build_router
 from smokejumper.recorder.writer import Recorder
-from smokejumper.worker import worker_task
+from smokejumper.worker import WorkerHandle, worker_task
 
 # A dependency that has not answered in three seconds is down as far as an
 # orchestrator is concerned; without a bound, a black-holed socket would hang
@@ -63,11 +65,17 @@ def create_app(
     redis = Redis.from_url(redis_url)
     recorder = Recorder(Path(os.environ.get("SMOKEJUMPER_LOG_DIR", "logs")))
 
+    # Populated at startup so `/healthz` can report worker liveness. A module
+    # attribute rather than a closure variable because the health route needs to
+    # read whatever the current lifespan set, including `None` before startup.
+    state: dict[str, Any] = {"worker": None}
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         # The worker runs beside the API so `docker compose up` yields a system
         # that actually processes an alert, rather than one that only accepts it.
-        async with worker_task(engine, redis, recorder):
+        async with worker_task(engine, redis, recorder) as handle:
+            state["worker"] = handle
             try:
                 yield
             finally:
@@ -79,14 +87,31 @@ def create_app(
 
     @app.get("/healthz")
     async def healthz() -> JSONResponse:
+        """Liveness of everything an incident depends on, not just the process.
+
+        The worker is checked because it is the component whose death is
+        invisible: the API keeps accepting alerts and the queue keeps growing
+        while nothing investigates. Reporting only Postgres and Redis would leave
+        the container "healthy" through exactly that failure.
+        """
+        worker: WorkerHandle | None = state["worker"]
         checks = {
             "postgres": await _probe(check_connection(engine)),
             "redis": await _probe(redis.ping()),
+            "worker": worker.status() if worker else "starting",
         }
-        healthy = all(state == "ok" for state in checks.values())
+        healthy = all(value == "ok" for value in checks.values())
+
+        # Reported, not gated on: a recorder write failure is serious (SPEC 5.8
+        # makes JSONL the source of truth) but it does not mean the process
+        # cannot serve, and flapping the container on it would lose more.
+        details: dict[str, Any] = {"recorder_write_failures": recorder.failures}
+        with contextlib.suppress(Exception):
+            details["queue_backlog"] = await redis.xlen(STREAM)
+
         return JSONResponse(
             status_code=200 if healthy else 503,
-            content={"status": "ok" if healthy else "unhealthy", **checks},
+            content={"status": "ok" if healthy else "unhealthy", **checks, **details},
         )
 
     @app.get("/runs/{fingerprint}")

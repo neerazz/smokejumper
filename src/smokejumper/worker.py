@@ -203,6 +203,28 @@ async def run_worker(
                 await _process(engine, redis, recorder, mid, fields)
 
 
+class WorkerHandle:
+    """Liveness view of the background worker, for the health endpoint.
+
+    Exists because a worker that dies silently is the worst failure this system
+    has: the API keeps returning 202, the queue keeps growing, and nothing
+    investigates. An orchestrator can only act on that if the health endpoint
+    knows about it, so the task is exposed rather than fired and forgotten.
+    """
+
+    def __init__(self, task: asyncio.Task[None]) -> None:
+        self._task = task
+
+    def status(self) -> str:
+        """`ok`, or `dead: <reason>` once the loop has stopped."""
+        if not self._task.done():
+            return "ok"
+        if self._task.cancelled():
+            return "dead: cancelled"
+        error = self._task.exception()
+        return f"dead: {type(error).__name__}" if error else "dead: exited"
+
+
 @contextlib.asynccontextmanager
 async def worker_task(engine: AsyncEngine, redis: Redis, recorder: Recorder):
     """Run the worker beside the API for the lifetime of the app.
@@ -213,7 +235,7 @@ async def worker_task(engine: AsyncEngine, redis: Redis, recorder: Recorder):
     """
     task = asyncio.create_task(run_worker(engine, redis, recorder))
     try:
-        yield task
+        yield WorkerHandle(task)
     finally:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):

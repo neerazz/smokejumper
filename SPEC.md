@@ -286,9 +286,11 @@ smokejumper/
 │   └── faultbox/               # injectable-fault sample app
 ├── src/smokejumper/
 │   ├── contracts/              # B1–B11 pydantic models — THE source of truth
+│   ├── app.py                  # FastAPI: /healthz, /runs/{fingerprint}, webhook router
+│   ├── worker.py               # Redis consumer loop: queue → triage → actions → audit
 │   ├── receiver/               # webhook routes, per-source verification, normalizers, dedupe
-│   ├── queue/                  # Redis Streams producer (consumer arrives with M2)
-│   ├── intelligence/           # LangGraph graph, supervisor, registry loader, sub-agent runner
+│   ├── queue/                  # Redis Streams producer
+│   ├── intelligence/           # triage.py today; LangGraph supervisor + specialists later
 │   ├── knowledge/              # facade, vector store, recipes (federates via mcp/)
 │   ├── mcp/                    # THE MCP domain — one client, one governance seam (§5.5)
 │   │   ├── gateway.py          #   the only app MCP client
@@ -392,9 +394,17 @@ with every payload.
   set; per-alert events are recorded but not enqueued).
 - Failure mode: unverifiable payload → 401 + recorder entry; unparseable → quarantine table + 202.
 
-### 5.2 Queue — Redis Streams
-- Stream `agentevents`, consumer group `intelligence`. At-least-once; consumers idempotent by
-  `event.id`. Backpressure = Governor sets max in-flight runs (default 3).
+### 5.2 Queue — Redis Streams **(implemented)**
+- Stream `agentevents`, consumer group `intelligence`. At-least-once, and the worker acknowledges
+  only after its transaction commits: acking first would drop an incident on any later failure.
+- **Idempotency is the ticket index, not `event.id`.** A redelivered message re-runs triage and
+  reaches the same Conclusion, then `actions` finds the open ticket for that fingerprint and
+  updates it. That is the same path a genuine duplicate takes, so at-least-once needs no separate
+  dedupe table.
+- A message that cannot be parsed is acked and logged rather than retried forever, because one
+  poison payload would otherwise starve every incident behind it. A run that *fails* is left
+  pending, so it can be retried.
+- Backpressure = Governor sets max in-flight runs (default 3) — **outstanding**, M4.
 
 ### 5.3 Intelligence — LangGraph
 - **Supervisor graph nodes:** `intake → retrieve(B3) → plan → dispatch(B11, parallel) →
@@ -569,15 +579,39 @@ port is stubbed. A stub that only writes a log line is indistinguishable from a 
 everything except a human reading logs, which is exactly the failure ADR-0004 flagged and did
 not close.
 
+### 5.11 Health and operator surface **(implemented)**
+
+`GET /healthz` reports Postgres, Redis, **and the worker**, and returns 503 if any is down. The
+worker is included because its death is the quietest failure the system has: the API keeps
+returning 202 and the queue keeps growing while nothing investigates, so an orchestrator that only
+saw the datastores would keep a useless container alive. A dead worker reports
+`dead: <ExceptionName>`, because "dead" alone does not say where to look.
+
+Two values are reported but do **not** gate the status code: `recorder_write_failures` and
+`queue_backlog`. A recorder failure is serious — JSONL is the audit source of truth (§5.8) — but it
+does not mean the process cannot serve, and flapping the container on it would lose more than it
+saves. A backlog is a symptom whose healthy range depends on load.
+
+`GET /runs/{fingerprint}` returns the run, its Conclusion, the ticket, and the audit byte range.
+Without it the only way to see an outcome is `psql`, which makes the system unusable by the person
+it is for.
+
 ## 6. Sequence flows (level-2)
 
-### 6.1 Alert triage (happy path)
+### 6.1 Alert triage — the target flow
 Grafana webhook → Receiver verifies+normalizes → dedupe miss → enqueue → supervisor intake →
 retrieve (episodes + recipes; any federated tool crosses the manifest tier check) → plan selects
 specialists → parallel Assignments → ModelProvider calls the configured worker model → Findings
 back → aggregate → synthesize Conclusion(root_caused, 0.82) →
 Actions: create Linear ticket SMOKE-123 + Slack receipt with evidence links → recorder has
 the full trace → run closed.
+
+**What runs today**, which is the same shape with the middle collapsed: Datadog webhook → Receiver
+verifies (shared token) + normalizes → dedupe miss → enqueue on `agentevents` → worker consumes →
+run opened → deterministic triage (§5.3a) → `Conclusion(needs_human, 0.9)` → Actions create the
+fixture ticket → recorder holds `event`/`transition`/`action` → run closed and readable at
+`GET /runs/{fingerprint}`. Absent from it: retrieval, specialists, the model call, Linear, and the
+Slack receipt.
 
 ### 6.2 Approval round-trip (v1 test/demo path)
 The production privileged tier is empty. The test-only `demo_destructive_noop` proves the full
@@ -610,6 +644,11 @@ migration has ever created).
 
 **Migrations, in order.** `0001_core_tables` creates the `vector` extension, `events`, and `runs`.
 `0002_event_window_closed` adds `events.window_closed_at` and a partial index on the open rows.
+`0003_runs_and_tickets` adds the run lifecycle columns (`event_id`, `conclusion`, `finished_at`,
+plus the `status` CHECK) and the `tickets` table. Its **partial unique index on `fingerprint` for
+open rows is what makes "exactly one ticket per incident" a database guarantee** rather than an
+application convention: two workers concluding the same fingerprint concurrently would both pass a
+Python-level check.
 `tests/integration/test_schema_stack.py` derives head from these files and asserts the running
 database is at it, so a migration that did not run is caught rather than assumed.
 
