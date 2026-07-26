@@ -621,10 +621,16 @@ account and no live model.
 acceptance sources — Grafana, Datadog, PagerDuty — are replayed from recorded payloads, each one
 twice. Per source that must produce one ticket created on first delivery and updated rather than
 duplicated on the second, one Slack receipt, and a complete recorder trace; `smokejumper eval`
-must then report at least 4 of 5 cases matching. All three are replayed rather than fired live
-because none of them runs as a `lab` service: Datadog and PagerDuty are SaaS with no local
-equivalent, and Grafana is an alert *payload format* Smokejumper must normalize rather than a
-system it operates. Replay exercises the normalizer and its signature verification identically.
+must then report at least 4 of 5 cases matching.
+
+**The acceptance trio and the lab end-to-end do different jobs, and they no longer share a
+source.** The trio proves three real payload *shapes* normalize and verify correctly, so all three
+are replayed rather than fired live: Datadog and PagerDuty are SaaS with no local equivalent, and
+Grafana is an alert payload format Smokejumper must normalize, not a system it operates — it is
+not a `lab` service. The lab proves the live alert *path* against faultbox ground truth, and
+Alertmanager is its source. Alertmanager is therefore never part of the replay trio, and Grafana is
+never fired live. Acceptance drives replay through the app container rather than starting the
+`fixtures` profile, because the profile's `replayer` runs the same command (§12 M1).
 
 §12 owns the exact command sequence, the evidence files it must leave behind, and the rollback
 path.
