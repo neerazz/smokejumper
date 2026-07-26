@@ -13,17 +13,22 @@ scheme for all of them:
   vendor, not to this code.
 - **Generic HTTP callers** are ours to specify, so they use HMAC-SHA256 over the
   raw body (SPEC 11.5.6), which is replay-resistant per-payload.
+- **Alertmanager offers nothing at all** — no signature, no token, not even a
+  configurable header in the standard webhook config. The only control left is
+  the network it connects from, so it is verified by peer address against an
+  explicit allowlist (SPEC 5.1).
 
-Both comparisons use `hmac.compare_digest`. A `==` on a secret leaks its prefix
-through timing, and the whole point of this module is to be the one place that
-cannot be got wrong quietly.
+Both secret comparisons use `hmac.compare_digest`. A `==` on a secret leaks its
+prefix through timing, and the whole point of this module is to be the one place
+that cannot be got wrong quietly.
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from ipaddress import IPv4Network, IPv6Network, ip_address
 
 # Datadog sends this as a custom header configured on the webhook. This is the
 # header *name*, not a credential; the secret it carries comes from config.
@@ -78,3 +83,29 @@ def verify_hmac_signature(body: bytes, headers: Mapping[str, str], *, secret: st
         return False
     expected = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(presented.removeprefix(_SIGNATURE_PREFIX), expected)
+
+
+def verify_source_ip(
+    client_host: str | None,
+    *,
+    allowlist: Sequence[IPv4Network | IPv6Network],
+) -> bool:
+    """True when the peer address falls inside the allowlist (Alertmanager).
+
+    An empty allowlist admits nothing, matching the other schemes: an unset
+    control fails closed rather than degrading into "accept everything", which is
+    the shape this endpoint would otherwise take since Alertmanager sends no
+    credential of any kind.
+
+    The *peer* address is used deliberately, not `X-Forwarded-For`. A forwarded
+    header is attacker-controlled unless every proxy in front is trusted and
+    strips it, and there is no trusted-proxy configuration to consult, so reading
+    it would turn the allowlist into a header any caller could spoof.
+    """
+    if not allowlist or not client_host:
+        return False
+    try:
+        peer = ip_address(client_host)
+    except ValueError:
+        return False
+    return any(peer in network for network in allowlist)

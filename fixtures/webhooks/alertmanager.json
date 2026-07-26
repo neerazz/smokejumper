@@ -1,0 +1,43 @@
+{
+  "receiver": "smokejumper",
+  "status": "firing",
+  "version": "4",
+  "groupKey": "{}/{severity=\"critical\"}:{alertname=\"HighErrorRate\"}",
+  "truncatedAlerts": 0,
+  "externalURL": "http://alertmanager:9093",
+  "groupLabels": {
+    "alertname": "HighErrorRate"
+  },
+  "commonLabels": {
+    "alertname": "HighErrorRate",
+    "severity": "critical",
+    "service": "checkout"
+  },
+  "commonAnnotations": {
+    "runbook_url": "https://runbooks.internal/high-error-rate"
+  },
+  "alerts": [
+    {
+      "status": "firing",
+      "fingerprint": "7d3b1e5a90c2f481",
+      "startsAt": "2026-07-26T18:25:03.884Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "http://prometheus:9090/graph?g0.expr=...",
+      "labels": {
+        "alertname": "HighErrorRate",
+        "severity": "critical",
+        "service": "checkout",
+        "env": "prod",
+        "kube_namespace": "payments",
+        "instance": "10.4.7.19:9102",
+        "job": "faultbox",
+        "team": "payments"
+      },
+      "annotations": {
+        "summary": "checkout 5xx rate above 5%",
+        "description": "5xx rate is 12.4% over the last 5m",
+        "runbook_url": "https://runbooks.internal/high-error-rate"
+      }
+    }
+  ]
+}

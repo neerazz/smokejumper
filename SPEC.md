@@ -369,7 +369,7 @@ with every payload.
 
 ## 5. Component specifications
 
-### 5.1 Receiver — deterministic, no LLM, no ticket/action writes
+### 5.1 Receiver — deterministic, no LLM, no ticket/action writes **(HTTP sources implemented)**
 - All inbound surfaces implement a **`ChannelAdapter` port** (`listen()` → yields raw
   inbound, `send(receipt)`); **v1 ships exactly one chat adapter: Slack.** Telegram
   (`aiogram`) and email (`imap-tools`/`IMAPClient`) are documented adapter stubs behind
@@ -378,21 +378,41 @@ with every payload.
   **seeded from Alerta's Apache-2.0 `alerta/webhooks/` parsers** (grafana, prometheus,
   pagerduty, cloudwatch, …) with attribution. Verification is per-source and uses the strongest
   scheme each vendor actually offers, which is **not** HMAC for all of them — see §11.5.6,
-  also hand-written (Alertmanager sends none — allowlist by network instead).
-- One FastAPI route per HTTP source: `/webhooks/grafana`, `/webhooks/alertmanager`,
+  also hand-written.
+- **All five HTTP routes exist:** `/webhooks/grafana`, `/webhooks/alertmanager`,
   `/webhooks/datadog`, `/webhooks/pagerduty`, `/webhooks/generic`. **Slack runs in
   Socket Mode via `slack-bolt`** (a listener task next to FastAPI — no public URL needed;
-  inbound events and outbound Web API calls use the same bot). Requires a Slack app Neeraj
-  creates once: bot token (`xoxb-`) + app token (`xapp-`, `connections:write`), bot scopes
-  `app_mentions:read`, `chat:write`, `channels:history`, `reactions:write` + interactivity
-  enabled for the approve/deny buttons.
+  inbound events and outbound Web API calls use the same bot) and is **outstanding**, M2.
+  Requires a Slack app Neeraj creates once: bot token (`xoxb-`) + app token
+  (`xapp-`, `connections:write`), bot scopes `app_mentions:read`, `chat:write`,
+  `channels:history`, `reactions:write` + interactivity enabled for the approve/deny buttons.
+- **Identity per source, which is the mapping that costs money to get wrong.** `source_event_key`
+  feeds the fingerprint, so a key that changes between two deliveries of one incident opens a
+  second ticket: Datadog `$ALERT_ID` (never `$AGGREG_KEY`, rotated per episode), PagerDuty
+  `dedup_key`/`incident_key` (never `incident.id`, reminted on re-trigger), Grafana and
+  Alertmanager the per-alert `fingerprint` falling back to the rule UID (never `alertname`, shared
+  by every instance of a multi-dimensional rule), generic the caller's `event_id`. Entities come
+  only from an allowlist of identity-bearing tags/labels, for the same reason.
+- **Grafana and Alertmanager post batches**, and each alert in one is its own incident with its own
+  fingerprint and its own ticket. Dedupe and enqueue are therefore per event, not per request, so
+  one duplicate in a batch cannot suppress its siblings. Alerts arriving with `status: resolved`
+  are dropped rather than enqueued — a resolution ends an incident, and investigating it would be
+  investigating something that just stopped happening.
+- **Alertmanager offers no credential of any kind** — no signature, no token, not even a
+  configurable header — so it is verified by *peer address* against
+  `webhooks.alertmanager_allowlist`. An empty allowlist admits nothing, matching every other
+  source's unset-secret behaviour; without that rule the endpoint would be an open,
+  unauthenticated write path. The peer address is used deliberately rather than
+  `X-Forwarded-For`, which any caller can set and which there is no trusted-proxy configuration
+  to validate.
 - Verify via Auth port (B1) → normalize to AgentEvent (B2) → fingerprint → fixed dedupe window
   (15 minutes from the first `received_at`; duplicates do not extend it; an incident close also
   closes it). The same fingerprint increments `dedupe_count` on the open event instead of
   emitting a new one → coalesce storms (>20
   distinct fingerprints from one source in 5 min ⇒ emit ONE `storm` AgentEvent that wraps the
-  set; per-alert events are recorded but not enqueued).
+  set; per-alert events are recorded but not enqueued) — **storm coalescing is outstanding**.
 - Failure mode: unverifiable payload → 401 + recorder entry; unparseable → quarantine table + 202.
+  **Outstanding:** the 401 logs but does not yet write its recorder entry.
 
 ### 5.2 Queue — Redis Streams **(implemented)**
 - Stream `agentevents`, consumer group `intelligence`. At-least-once, and the worker acknowledges
@@ -588,9 +608,15 @@ saw the datastores would keep a useless container alive. A dead worker reports
 `dead: <ExceptionName>`, because "dead" alone does not say where to look.
 
 Two values are reported but do **not** gate the status code: `recorder_write_failures` and
-`queue_backlog`. A recorder failure is serious — JSONL is the audit source of truth (§5.8) — but it
+`queue`. A recorder failure is serious — JSONL is the audit source of truth (§5.8) — but it
 does not mean the process cannot serve, and flapping the container on it would lose more than it
 saves. A backlog is a symptom whose healthy range depends on load.
+
+`queue` reports `{lag, pending}` read from `XINFO GROUPS`, not `XLEN`. The stream is capped by
+`maxlen` and retains acknowledged messages, so `XLEN` counts history rather than work: during the
+first stack smoke test it reported a backlog of 3 while the actual unprocessed count was 0. `lag`
+is what has never been delivered to the consumer group and `pending` is what was delivered and not
+yet acked, which together are the only two numbers that mean "work outstanding".
 
 `GET /runs/{fingerprint}` returns the run, its Conclusion, the ticket, and the audit byte range.
 Without it the only way to see an outcome is `psql`, which makes the system unusable by the person
@@ -606,12 +632,12 @@ back → aggregate → synthesize Conclusion(root_caused, 0.82) →
 Actions: create Linear ticket SMOKE-123 + Slack receipt with evidence links → recorder has
 the full trace → run closed.
 
-**What runs today**, which is the same shape with the middle collapsed: Datadog webhook → Receiver
-verifies (shared token) + normalizes → dedupe miss → enqueue on `agentevents` → worker consumes →
-run opened → deterministic triage (§5.3a) → `Conclusion(needs_human, 0.9)` → Actions create the
-fixture ticket → recorder holds `event`/`transition`/`action` → run closed and readable at
-`GET /runs/{fingerprint}`. Absent from it: retrieval, specialists, the model call, Linear, and the
-Slack receipt.
+**What runs today**, which is the same shape with the middle collapsed: a webhook on any of the
+five HTTP sources → Receiver verifies (per-source scheme) + normalizes → dedupe miss → enqueue on
+`agentevents` → worker consumes → run opened → deterministic triage (§5.3a) →
+`Conclusion(needs_human, 0.9)` → Actions create the fixture ticket → recorder holds
+`event`/`transition`/`action` → run closed and readable at `GET /runs/{fingerprint}`. Absent from
+it: retrieval, specialists, the model call, Linear, and the Slack receipt.
 
 ### 6.2 Approval round-trip (v1 test/demo path)
 The production privileged tier is empty. The test-only `demo_destructive_noop` proves the full
@@ -666,8 +692,9 @@ account and no live model.
 
 - **Contract tests** — every B-model round-trips JSON, invalid enums and out-of-range values are
   rejected, and `schema_version` is required. Golden payloads per webhook source in
-  `fixtures/webhooks/`; only `datadog.json` exists so far, and each remaining normalizer lands with
-  its own.
+  `fixtures/webhooks/`: all five HTTP sources have one, each driven by a test that asserts the
+  normalized identity, severity, and entity set, so a fixture cannot rot away from the code that
+  reads it. A parametrized test fails if a source ever ships without one.
 - **Component tests** — fingerprint stability under entity reordering; the dedupe and coalesce
   truth table including the 20-vs-21 fingerprint storm boundary; double delivery ⇒ one ticket;
   approval expiry ⇒ deny; budget breach ⇒ `inconclusive` B6 carrying partial findings.
@@ -712,10 +739,10 @@ complete when §12's exit evidence for it exists.
   their environment gates, the three-service Compose stack, first migration, `/healthz`, and a
   `prod` that refuses to start unsafe.
 - **M1** — an alert becomes a recorded, queued event. Flight Recorder, Receiver and normalizers,
-  fingerprint/dedupe/storm, Redis Streams, and the `lab` profile. *Partly landed: the Datadog
-  route, its verification, dedupe, and the stream producer work end to end (§12 M1 packets 2–5 for
-  Datadog only). The recorder, the other four normalizers, storm coalescing, and the `lab` profile
-  are not built.*
+  fingerprint/dedupe/storm, Redis Streams, and the `lab` profile. *Mostly landed: the recorder, all
+  five HTTP routes with their per-source verification, all five normalizers, dedupe, and the full
+  producer/consumer path work end to end (§12 M1 packets 1–5). Outstanding: storm coalescing, the
+  recorder entry owed by a 401, the `lab` profile, and `smokejumper fixtures replay`.*
 - **M2** — one alert reaches one ticket. `ModelProvider` against the chosen provider, supervisor
   graph, one specialist, Slack receipt, Linear create-vs-update.
 - **M3** — retrieval is real. `episodes` similarity plus recipes behind `MemoryPort`, cited in B6.
@@ -986,26 +1013,32 @@ docstring.
 makes the order buildable, and it is why the MCP manifest, the FastMCP targets, and tier
 enforcement all arrive at M5 rather than being asserted earlier against files that do not exist.
 
-**M0 has landed, and so has M1's Datadog ingestion path. The rest below is planned.** A command
-stops being planned when its milestone's exit evidence exists — not when it looks correct.
+**M0 has landed, and so has most of M1: an alert on any of the five HTTP sources now becomes a
+ticket without a human in the loop. The rest below is planned.** A command stops being planned
+when its milestone's exit evidence exists — not when it looks correct.
 
 M0's evidence: the three-service stack boots, `alembic upgrade head` applies from empty,
 `/healthz` reports both dependencies, `smokejumper check-config` validates inside the container,
 and the five universal gates pass.
 
-The Datadog slice's evidence, measured against the booted stack rather than in-process:
-`POST /webhooks/datadog` rejects an absent or wrong token with 401 and persists nothing; a
-delivery of the committed real fixture returns 202, writes exactly one `events` row, and enqueues
-exactly one `agentevents` message; redelivery increments `dedupe_count` without a second row or a
-second enqueue; **25 concurrent deliveries of one alert produce exactly one row, `dedupe_count`
-25, and one enqueue**; a body with no `alert_id` is quarantined with a reason rather than dropped;
-and a `Recovered` transition closes the window so a later re-trigger is a new incident.
-`tests/integration/test_datadog_ingestion_stack.py` is that evidence, repeatable.
+The ingestion path's evidence, measured against the booted stack rather than in-process. Per
+source: an unverifiable delivery is rejected with 401 and persists nothing; a valid delivery
+returns 202, writes exactly one `events` row, enqueues exactly one `agentevents` message, and is
+readable at `GET /runs/{fingerprint}` as a concluded run with a ticket and an audit byte range;
+redelivery increments `dedupe_count` without a second row, a second enqueue, or a second ticket;
+and an unnormalizable body is quarantined with a reason rather than dropped or 500'd. Beyond
+that, per the behaviour only that source has: **25 concurrent Datadog deliveries of one alert
+produce exactly one row, `dedupe_count` 25, and one enqueue**; a Datadog `Recovered` transition
+closes the window so a later re-trigger is a new incident; a Grafana batch of two firing alerts
+and one resolved yields two independent tickets and no investigation of the resolution; and
+Alertmanager is admitted by peer network with no credential at all.
+`tests/integration/test_datadog_ingestion_stack.py` and
+`tests/integration/test_source_ingestion_stack.py` are that evidence, repeatable.
 
-Still planned, and still absent: the Grafana, Alertmanager, PagerDuty and generic normalizers, the
-queue *consumer*, the recorder, and every `smokejumper` subcommand beyond `check-config` —
-`fixtures replay`, `logs`, `replay`, and `eval` do not exist. Nothing consumes `agentevents` yet,
-so an accepted alert is durably queued and then waits.
+Still planned, and still absent: storm coalescing, the recorder entry a 401 owes, the `lab`
+profile, and every `smokejumper` subcommand beyond `check-config` — `fixtures replay`, `logs`,
+`replay`, and `eval` do not exist. The Conclusion reaching those tickets is deterministic triage
+(§5.3a), not a model: no provider is wired, so nothing yet reasons about *why* an alert fired.
 
 ### Universal gates
 
@@ -1171,24 +1204,30 @@ docker compose down
 
 ### M1—recorder, receiver, queue, and local incident lab
 
-1. **Recorder first:** `recorder/writer.py`, `recorder/broadcast.py`, the `runs` repository
-   (M0's first migration already created `events` and `runs`, so M1 adds the code that writes
-   them, not the tables),
-   `smokejumper logs --follow`, and `smokejumper runs latest --format id`. Tests: append-only
-   JSONL, monotonic per-run `seq`, process-unique files, byte offsets, failure counter.
-   `runs latest --format id` prints one run id and nothing else, because the acceptance set
-   consumes its stdout.
-2. **Inbound persistence — LANDED for Datadog:** `receiver/repository.py` with the quarantine path;
+1. **Recorder first — writer LANDED, operator commands outstanding:** `recorder/writer.py` and the
+   `runs` repository are built (M0's first migration already created `events` and `runs`, so M1
+   adds the code that writes them, not the tables), with append-only fsynced JSONL, monotonic
+   per-run `seq`, process-unique files, byte offsets, and a failure counter surfaced by `/healthz`.
+   The run's byte range is readable through `GET /runs/{fingerprint}`. **Outstanding:**
+   `recorder/broadcast.py`, `smokejumper logs --follow`, and `smokejumper runs latest --format id`,
+   which must print one run id and nothing else because the acceptance set consumes its stdout.
+2. **Inbound persistence — LANDED:** `receiver/repository.py` with the quarantine path;
    401 for an unverifiable payload and 202 with a quarantine row for an unparseable one.
-   **Outstanding:** the 401 currently only logs. The *audit entry* it owes needs the recorder from
-   packet 1, so a rejected delivery is visible in the log and in no durable record yet.
-3. **Normalizers — Datadog LANDED, four outstanding:** generic, Grafana, PagerDuty, and
-   Alertmanager adapters built from `fixtures/webhooks/`; per source a golden valid payload, an
-   invalid one, a verification case, and a severity-mapping case. Grafana is a payload format here,
-   not a service Smokejumper runs. `receiver/normalizers/datadog.py` is the pattern the other four
-   follow: `$ALERT_ID` is the `source_event_key` and never `$AGGREG_KEY`, which Datadog rotates per
-   alert episode; and only an allowlist of identity-bearing tags becomes entities, because entities
-   feed the fingerprint and a volatile tag would re-identify an incident mid-flight.
+   **Outstanding:** the 401 currently only logs. The *audit entry* it owes is a small change now
+   that packet 1 has landed, so a rejected delivery is visible in the log and in no durable record
+   yet.
+3. **Normalizers — LANDED, all five:** `receiver/normalizers/datadog.py` plus
+   `receiver/normalizers/sources.py` (PagerDuty, Grafana, Alertmanager, generic), each with a
+   golden payload under `fixtures/webhooks/`, an invalid case, a verification case, and a
+   severity-mapping case. Grafana is a payload format here, not a service Smokejumper runs.
+   The shared pattern is identity discipline — §5.1 lists the field each source uses and the
+   tempting wrong one it rejects — and an allowlist of identity-bearing tags/labels for entities,
+   because entities feed the fingerprint and a volatile tag would re-identify an incident
+   mid-flight. Three vendor quirks are handled rather than assumed away: PagerDuty carries three
+   different severity signals depending on which product sent the hook (`priority`, then Events-API
+   `severity`, then `urgency`) and sends `null` for sub-objects an incident lacks; Grafana and
+   Alertmanager post *batches* that fan out to one incident each; and Alertmanager authenticates by
+   peer network because it sends nothing else.
 4. **Fingerprint, dedupe, storm — dedupe LANDED, storm outstanding:** canonical entity ordering,
    stable hash, and the 15-minute window are done and proven under concurrency; `admit()` takes a
    per-fingerprint advisory lock, because the window is time-relative and so cannot be a partial
@@ -1196,10 +1235,13 @@ docker compose down
    25-delivery storm produces **four** rows instead of one. Recovery sets `window_closed_at` via
    migration `0002_event_window_closed` (§7) and is idempotent. **Outstanding:** the 20-vs-21
    fingerprint storm boundary, the five-minute reset, and the single `kind=storm` enqueue.
-5. **Redis Streams — producer LANDED, consumer outstanding:** `queue/producer.py` XADDs to
-   `agentevents` with a bounded `maxlen`. **Outstanding:** the `intelligence` consumer group,
-   at-least-once reclaim, `event.id` idempotency, and max in-flight 3. Nothing reads the stream
-   yet, so an accepted alert is durably queued and waits.
+5. **Redis Streams — LANDED:** `queue/producer.py` XADDs to `agentevents` with a bounded `maxlen`,
+   and `worker.py` consumes the `intelligence` group beside the API, acking only after its
+   transaction commits. A failed run is left pending so it can be retried; an unparseable message
+   is acked so one poison payload cannot starve the incidents behind it. `/healthz` reports the
+   worker's liveness and the group's `{lag, pending}`, because a dead consumer is otherwise
+   invisible (§5.11). **Outstanding:** at-least-once reclaim of another consumer's stale pending
+   entries, and max in-flight 3 — both M4 Governor work.
 6. **`lab` profile:** `compose/{prometheus,alertmanager,loki,promtail,faultbox}/` and their
    provisioning. Prometheus rules fire at Alertmanager, which posts directly to
    `/webhooks/alertmanager`; no dashboard sits on the alert path. Fix the faultbox's

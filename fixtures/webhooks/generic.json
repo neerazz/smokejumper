@@ -1,0 +1,13 @@
+{
+  "event_id": "deploy-4711-canary-failed",
+  "severity": "critical",
+  "title": "canary rollout aborted for checkout",
+  "body": "Canary at 10% traffic exceeded the error budget: 5xx rate 12.4% over 5m against a 1% objective. Rollout was aborted automatically and traffic returned to the previous revision.",
+  "occurred_at": "2026-07-26T18:20:00Z",
+  "entities": [
+    { "type": "service", "id": "checkout" },
+    { "type": "env", "id": "prod" },
+    { "type": "kube_namespace", "id": "payments" }
+  ],
+  "source_url": "https://deploy.internal/rollouts/4711"
+}

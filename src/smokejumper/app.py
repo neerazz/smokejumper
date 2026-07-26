@@ -13,8 +13,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
-from collections.abc import AsyncIterator, Awaitable
+from collections.abc import AsyncIterator, Awaitable, Sequence
 from contextlib import asynccontextmanager
+from ipaddress import IPv4Network, IPv6Network
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,8 @@ def create_app(
     database_url: str,
     redis_url: str,
     datadog_secret: str = "",
+    source_secrets: dict[str, str] | None = None,
+    alertmanager_allowlist: Sequence[IPv4Network | IPv6Network] = (),
 ) -> FastAPI:
     """Build the application against explicit dependency URLs.
 
@@ -82,7 +85,15 @@ def create_app(
                 await redis.aclose()
 
     app = FastAPI(title="Smokejumper", version="0.1.0", lifespan=lifespan)
-    app.include_router(build_router(engine=engine, redis=redis, datadog_secret=datadog_secret))
+    app.include_router(
+        build_router(
+            engine=engine,
+            redis=redis,
+            datadog_secret=datadog_secret,
+            source_secrets=source_secrets,
+            alertmanager_allowlist=alertmanager_allowlist,
+        )
+    )
 
     @app.get("/healthz")
     async def healthz() -> JSONResponse:
@@ -179,9 +190,15 @@ def app_from_env() -> FastAPI:
     from smokejumper.config import load_settings
 
     settings = load_settings()
-    secret = settings.webhooks.datadog.secret
+
+    def reveal(source: str) -> str:
+        value = getattr(settings.webhooks, source).secret
+        return "" if value is None else value.get_secret_value()
+
     return create_app(
         database_url=str(settings.database.url),
         redis_url=str(settings.redis.url),
-        datadog_secret="" if secret is None else secret.get_secret_value(),
+        datadog_secret=reveal("datadog"),
+        source_secrets={source: reveal(source) for source in ("grafana", "pagerduty", "generic")},
+        alertmanager_allowlist=settings.webhooks.alertmanager_allowlist,
     )

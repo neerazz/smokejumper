@@ -19,7 +19,9 @@ Status codes are deliberate and are part of the contract with the sender:
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime
+from ipaddress import IPv4Network, IPv6Network
 from typing import Any
 from uuid import uuid4
 
@@ -27,15 +29,65 @@ from fastapi import APIRouter, Request, Response, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from smokejumper.contracts.events import AgentEvent
 from smokejumper.queue import producer
 from smokejumper.receiver import repository
-from smokejumper.receiver.normalizers import datadog
-from smokejumper.receiver.verification import verify_shared_token
+from smokejumper.receiver.normalizers import datadog, sources
+from smokejumper.receiver.verification import (
+    verify_hmac_signature,
+    verify_shared_token,
+    verify_source_ip,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def build_router(*, engine: AsyncEngine, redis: Redis, datadog_secret: str) -> APIRouter:
+async def _admit_and_enqueue(
+    *,
+    engine: AsyncEngine,
+    redis: Redis,
+    events: list[AgentEvent],
+) -> list[dict[str, Any]]:
+    """Persist and enqueue a batch, one incident at a time.
+
+    Grafana and Alertmanager deliver several alerts per POST and each is its own
+    incident, so dedupe and enqueue are per event rather than per request. One
+    duplicate in a batch must not suppress its siblings.
+    """
+    results: list[dict[str, Any]] = []
+    for event in events:
+        async with engine.begin() as connection:
+            admission = await repository.admit(connection, event)
+        if admission.is_duplicate:
+            results.append(
+                {
+                    "status": "duplicate",
+                    "fingerprint": admission.fingerprint,
+                    "dedupe_count": admission.dedupe_count,
+                }
+            )
+            continue
+        message_id = await producer.publish(redis, event)
+        results.append(
+            {
+                "status": "accepted",
+                "event_id": admission.event_id,
+                "fingerprint": admission.fingerprint,
+                "severity": event.severity.value,
+                "queue_message_id": message_id,
+            }
+        )
+    return results
+
+
+def build_router(
+    *,
+    engine: AsyncEngine,
+    redis: Redis,
+    datadog_secret: str,
+    source_secrets: dict[str, str] | None = None,
+    alertmanager_allowlist: Sequence[IPv4Network | IPv6Network] = (),
+) -> APIRouter:
     """Routes bound to their dependencies.
 
     Dependencies are injected rather than resolved from module state so a test can
@@ -114,5 +166,75 @@ def build_router(*, engine: AsyncEngine, redis: Redis, datadog_secret: str) -> A
             "entities": [f"{entity.type}:{entity.id}" for entity in event.entities],
             "queue_message_id": message_id,
         }
+
+    secrets = source_secrets or {}
+
+    def _register(name: str, normalize: Any, *, hmac_signed: bool) -> None:
+        """Wire one source's route.
+
+        Verification differs per source and is passed in rather than inferred:
+        our own generic endpoint signs the body (HMAC), while the vendors that
+        offer nothing better carry a shared token (§11.5.6). Alertmanager signs
+        nothing at all, so it is checked by peer address instead.
+        """
+
+        @router.post(f"/{name}", status_code=status.HTTP_202_ACCEPTED, name=f"{name}_webhook")
+        async def handler(  # pyright: ignore[reportUnusedFunction]
+            request: Request,
+            response: Response,
+            _name: str = name,
+            _normalize: Any = normalize,
+            _hmac: bool = hmac_signed,
+        ) -> dict[str, Any]:
+            received_at = datetime.now(tz=UTC)
+            secret = secrets.get(_name, "")
+            body = await request.body()
+
+            # Alertmanager carries no credential to check, so the peer address is
+            # the credential. An unconfigured allowlist admits nothing, the same
+            # way an unconfigured secret does.
+            if _name == "alertmanager":
+                ok = verify_source_ip(
+                    request.client.host if request.client else None,
+                    allowlist=alertmanager_allowlist,
+                )
+            else:
+                ok = (
+                    verify_hmac_signature(body, request.headers, secret=secret)
+                    if _hmac
+                    else verify_shared_token(request.headers, secret=secret)
+                )
+            if not ok:
+                logger.warning("rejected unverified %s delivery", _name)
+                response.status_code = status.HTTP_401_UNAUTHORIZED
+                return {"status": "unverified"}
+
+            try:
+                events = _normalize(await request.json(), received_at=received_at)
+            except (ValueError, TypeError) as error:
+                reason = str(error)[:500]
+                logger.warning("quarantined %s delivery: %s", _name, reason)
+                async with engine.begin() as connection:
+                    await repository.quarantine(
+                        connection,
+                        event_id=str(uuid4()),
+                        source=_name,
+                        received_at=received_at,
+                        reason=reason,
+                    )
+                return {"status": "quarantined", "reason": reason}
+
+            if not events:
+                # A batch of only resolved alerts. Nothing to investigate, and
+                # nothing malformed either.
+                return {"status": "ignored", "reason": "no firing alerts in payload"}
+
+            results = await _admit_and_enqueue(engine=engine, redis=redis, events=events)
+            return {"status": "processed", "count": len(results), "results": results}
+
+    _register("pagerduty", sources.normalize_pagerduty, hmac_signed=False)
+    _register("grafana", sources.normalize_grafana, hmac_signed=False)
+    _register("alertmanager", sources.normalize_alertmanager, hmac_signed=False)
+    _register("generic", sources.normalize_generic, hmac_signed=True)
 
     return router

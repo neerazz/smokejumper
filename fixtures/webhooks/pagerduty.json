@@ -1,0 +1,68 @@
+{
+  "event": {
+    "id": "01F2VH8N4CQZ8TQMD7YQXRK9WE",
+    "event_type": "incident.triggered",
+    "resource_type": "incident",
+    "occurred_at": "2026-07-26T18:29:41.123Z",
+    "agent": {
+      "html_url": "https://acme.pagerduty.com/services/PF9KMXH",
+      "id": "PF9KMXH",
+      "self": "https://api.pagerduty.com/services/PF9KMXH",
+      "summary": "feature-store",
+      "type": "service_reference"
+    },
+    "client": null,
+    "data": {
+      "id": "PGR0VU29ZC3XKL",
+      "type": "incident",
+      "self": "https://api.pagerduty.com/incidents/PGR0VU29ZC3XKL",
+      "html_url": "https://acme.pagerduty.com/incidents/PGR0VU29ZC3XKL",
+      "number": 1701,
+      "status": "triggered",
+      "incident_key": "feature-store/online-table-lag",
+      "created_at": "2026-07-26T18:29:41Z",
+      "title": "online table lag above 15m on merchant_features",
+      "service": {
+        "html_url": "https://acme.pagerduty.com/services/PF9KMXH",
+        "id": "PF9KMXH",
+        "self": "https://api.pagerduty.com/services/PF9KMXH",
+        "summary": "feature-store",
+        "type": "service_reference"
+      },
+      "assignees": [
+        {
+          "html_url": "https://acme.pagerduty.com/users/PU8KM2A",
+          "id": "PU8KM2A",
+          "self": "https://api.pagerduty.com/users/PU8KM2A",
+          "summary": "Neeraj",
+          "type": "user_reference"
+        }
+      ],
+      "escalation_policy": {
+        "id": "PEK7XQ2",
+        "summary": "Data Platform Escalation",
+        "type": "escalation_policy_reference"
+      },
+      "teams": [
+        {
+          "id": "PT4KHLK",
+          "summary": "data-platform",
+          "type": "team_reference"
+        }
+      ],
+      "priority": {
+        "id": "P53ZZH5",
+        "self": "https://api.pagerduty.com/priorities/P53ZZH5",
+        "summary": "P2",
+        "type": "priority_reference"
+      },
+      "urgency": "high",
+      "conference_bridge": null,
+      "resolve_reason": null,
+      "body": {
+        "type": "incident_body",
+        "details": "merchant_features online table lag is 22 minutes and climbing; upstream ingest job last succeeded at 17:58Z."
+      }
+    }
+  }
+}

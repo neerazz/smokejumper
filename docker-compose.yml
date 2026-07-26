@@ -52,6 +52,15 @@ services:
       # default, and an empty secret rejects every delivery (SPEC 5.1) rather than
       # accepting unauthenticated alerts.
       SMOKEJUMPER__WEBHOOKS__DATADOG__SECRET: ${SMOKEJUMPER__WEBHOOKS__DATADOG__SECRET:-}
+      # Same fail-closed default for every other source. PagerDuty and Grafana
+      # send a shared token; the generic endpoint signs the body.
+      SMOKEJUMPER__WEBHOOKS__PAGERDUTY__SECRET: ${SMOKEJUMPER__WEBHOOKS__PAGERDUTY__SECRET:-}
+      SMOKEJUMPER__WEBHOOKS__GRAFANA__SECRET: ${SMOKEJUMPER__WEBHOOKS__GRAFANA__SECRET:-}
+      SMOKEJUMPER__WEBHOOKS__GENERIC__SECRET: ${SMOKEJUMPER__WEBHOOKS__GENERIC__SECRET:-}
+      # Alertmanager sends no credential at all, so the peer network is the only
+      # control. JSON list of CIDRs, e.g. '["172.16.0.0/12"]'. Empty admits
+      # nothing, which is the right default for an unauthenticated write path.
+      SMOKEJUMPER__WEBHOOKS__ALERTMANAGER_ALLOWLIST: ${SMOKEJUMPER__WEBHOOKS__ALERTMANAGER_ALLOWLIST:-[]}
       # Compose's own variable, forwarded so the app sees the profiles it was
       # actually started with. Without it the rule refusing `lab` outside
       # `local` (SPEC 2d) inspects an empty list and passes vacuously.

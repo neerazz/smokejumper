@@ -48,6 +48,20 @@ jobs:
     # Separate job so a lint failure does not wait on containers, and so the
     # integration result is legible on its own.
     runs-on: ubuntu-latest
+    env:
+      # Generated here, not read from a repository secret. This token only
+      # authenticates a test webhook against a throwaway stack, so it is not a
+      # credential — and requiring a secret meant the ingestion tests skipped
+      # silently on any checkout that lacked one, which is how this job was
+      # passing green while running 5 of 16 tests.
+      SMOKEJUMPER__WEBHOOKS__DATADOG__SECRET: ci-ephemeral-webhook-token
+      SMOKEJUMPER__WEBHOOKS__PAGERDUTY__SECRET: ci-ephemeral-webhook-token
+      SMOKEJUMPER__WEBHOOKS__GRAFANA__SECRET: ci-ephemeral-webhook-token
+      SMOKEJUMPER__WEBHOOKS__GENERIC__SECRET: ci-ephemeral-webhook-token
+      # Alertmanager authenticates by peer network. Inside compose the peer is
+      # the bridge gateway, so the private ranges are what the app sees.
+      SMOKEJUMPER__WEBHOOKS__ALERTMANAGER_ALLOWLIST: '["172.16.0.0/12","192.168.0.0/16","10.0.0.0/8"]'
+      SMOKEJUMPER_TEST_STACK: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -70,10 +84,18 @@ jobs:
       # SMOKEJUMPER_TEST_STACK=1 turns the integration skips into hard
       # requirements. Without it these tests would pass by not running, which is
       # the failure mode tests/conftest.py exists to prevent.
+      #
+      # The skip count is then asserted to be zero. A green check that ran a
+      # fraction of the suite is worse than a red one, because nobody looks
+      # twice at a tick — so "skipped" is treated as failure here even though
+      # pytest exits 0 for it.
       - name: Stack-backed tests
-        env:
-          SMOKEJUMPER_TEST_STACK: "1"
-        run: uv run pytest -m integration
+        run: |
+          uv run pytest -m integration -p no:cacheprovider | tee /tmp/stack.log
+          if grep -q "skipped" /tmp/stack.log; then
+            echo "::error::integration tests skipped in CI; they must all run"
+            exit 1
+          fi
 
       - name: Configuration validates inside the container
         run: docker compose exec -T app smokejumper check-config
