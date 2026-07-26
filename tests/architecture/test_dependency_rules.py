@@ -1,10 +1,11 @@
 """SPEC §3's dependency rules, enforced mechanically.
 
-Four sentences hold the architecture up: `contracts` imports nothing internal,
+Five sentences hold the architecture up: `contracts` imports nothing internal,
 `ports/model.py` is the only place a provider SDK appears, `receiver` and
-`actions` never reach a model, and only `mcp/` speaks MCP. Everything else in the
-design leans on them — deterministic replay, the tiering seam, "nothing
-downstream of B6 calls a model" — and prose has never once stopped an import.
+`actions` never reach a model, `intelligence` never imports `actions`, and only
+`mcp/` speaks MCP. Everything else in the design leans on them — deterministic
+replay, the tiering seam, "nothing downstream of B6 calls a model" — and prose
+has never once stopped an import.
 
 The tree is parsed with `ast`, never imported. Most of the packages these rules
 protect do not exist yet, so an import-based checker would pass vacuously today
@@ -25,6 +26,7 @@ import pytest
 CONTRACTS_IS_LEAF = "contracts must import nothing else from smokejumper"
 MODEL_SDK_CONFINED = "a model/provider SDK may be imported only in ports/model.py"
 NO_MODEL_DOWNSTREAM = "receiver/ and actions/ must not reach a model"
+INTELLIGENCE_EMITS_ONLY = "intelligence must not import actions; it only emits B6"
 MCP_CONFINED = "only mcp/ may speak MCP"
 
 PROVIDER_SDKS = frozenset(
@@ -49,6 +51,8 @@ CONTRACTS_DIR = Path("contracts")
 MCP_DIR = Path("mcp")
 MODEL_SEAM = Path("ports/model.py")
 MODEL_FREE_DIRS = (Path("receiver"), Path("actions"))
+INTELLIGENCE_DIR = Path("intelligence")
+ACTIONS_PACKAGE = "smokejumper.actions"
 
 
 @dataclass(frozen=True)
@@ -96,6 +100,12 @@ def _breaches(module: Path, line: int, imported: str) -> Iterator[Violation]:
         imported, [MODEL_PORT]
     ):
         yield Violation(NO_MODEL_DOWNSTREAM, location, line, imported)
+
+    # B6 is the determinism boundary: intelligence hands a Conclusion onward and
+    # never triggers the side effect itself, or "nothing downstream of B6 may call
+    # a model" stops being checkable by reading one package.
+    if module.is_relative_to(INTELLIGENCE_DIR) and _matches(imported, [ACTIONS_PACKAGE]):
+        yield Violation(INTELLIGENCE_EMITS_ONLY, location, line, imported)
 
     # Constructing an MCP client requires importing one, so the import is the
     # earlier and statically checkable signal.
@@ -168,6 +178,12 @@ def test_packages_that_do_not_exist_yet_are_not_an_error(tmp_path: Path) -> None
             NO_MODEL_DOWNSTREAM,
         ),
         ("receiver/normalize.py", "from smokejumper.ports import model\n", NO_MODEL_DOWNSTREAM),
+        (
+            "intelligence/graph.py",
+            "from smokejumper.actions.service import execute\n",
+            INTELLIGENCE_EMITS_ONLY,
+        ),
+        ("intelligence/synthesize.py", "from ..actions import slack\n", INTELLIGENCE_EMITS_ONLY),
         ("knowledge/facade.py", "import fastmcp\n", MCP_CONFINED),
         (
             "intelligence/tools.py",

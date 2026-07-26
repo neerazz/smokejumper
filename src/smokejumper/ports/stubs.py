@@ -18,6 +18,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from smokejumper.contracts.ticketing import TicketProvider
 from smokejumper.ports.channel import RawInbound
 from smokejumper.ports.memory import Episode
 from smokejumper.ports.model import ModelRole
@@ -128,21 +129,27 @@ class FixtureTicketing:
 
     It is the dry-run adapter local development uses, and it implements the real
     fingerprint bookkeeping so create-vs-update is exercised without an account.
+
+    It speaks the `contracts/` models rather than bare dicts, which is what lets
+    pyright hold every adapter — this one and the real Linear adapter at M2 — to
+    the same signatures.
     """
 
     def __init__(self) -> None:
         _announce(self, "TicketingPort")
         self.tickets: dict[str, FixtureTicket] = {}
 
+    def _ref(self, ticket: FixtureTicket) -> TicketRef:
+        return TicketRef(provider=TicketProvider.LINEAR, external_id=ticket.id)
+
     async def find_open_by_fingerprint(self, fingerprint: str) -> TicketRef | None:
         ticket = self.tickets.get(fingerprint)
-        return None if ticket is None or ticket.closed else {"id": ticket.id}
+        return None if ticket is None or ticket.closed else self._ref(ticket)
 
     async def create(self, draft: TicketDraft) -> TicketRef:
-        fingerprint = str(draft["fingerprint"])
         ticket = FixtureTicket(id=f"FIXTURE-{len(self.tickets) + 1}")
-        self.tickets[fingerprint] = ticket
-        return {"id": ticket.id}
+        self.tickets[draft.fingerprint] = ticket
+        return self._ref(ticket)
 
     async def update(self, ref: TicketRef, update: TicketUpdate) -> None:
         self._by_ref(ref).updates.append(update)
@@ -152,9 +159,9 @@ class FixtureTicketing:
 
     def _by_ref(self, ref: TicketRef) -> FixtureTicket:
         for ticket in self.tickets.values():
-            if ticket.id == ref["id"]:
+            if ticket.id == ref.external_id:
                 return ticket
-        raise KeyError(f"unknown ticket {ref!r}")
+        raise KeyError(f"unknown ticket {ref.external_id!r}")
 
 
 class InMemoryStore:

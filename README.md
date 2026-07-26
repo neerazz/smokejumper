@@ -6,9 +6,10 @@ An alert lands, Smokejumper dispatches budgeted specialist investigators in para
 reports a grounded conclusion with receipts—creating or updating exactly one ticket per
 incident fingerprint.
 
-> **Status: design complete; implementation not started.** The repository does not yet contain
-> a runnable application or Compose stack. Commands are published as runnable only after their
-> milestone has been implemented and verified.
+> **Status: the M0 foundation is implemented; M1–M6 are design only.** The three-service Compose
+> stack boots and the contracts, configuration, and ports exist. The incident-triage behaviour —
+> intake, investigation, and actions — does not. Commands are published as runnable only after
+> their milestone has been implemented and verified.
 
 ## One source of truth
 

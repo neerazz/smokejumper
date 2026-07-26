@@ -21,6 +21,7 @@ from typing import Annotated, Any, Final, Literal
 from pydantic import (
     AliasChoices,
     BaseModel,
+    ConfigDict,
     Field,
     HttpUrl,
     IPvAnyNetwork,
@@ -116,6 +117,21 @@ CONFIG_DIR: Path = Path(
 )
 
 
+# Selections that name code which does not exist yet, mapped to the milestone
+# that builds each. `check-config` refuses them rather than answering "valid"
+# for a stack that cannot boot, which is the same discipline `cli.py` applies to
+# subcommands: a thing that exists and does nothing is worse than a missing one.
+PLANNED_SELECTIONS: Final[Mapping[str, str]] = {
+    "HostVerifier": "a host-supplied adapter (SPEC 11.5.2)",
+    "HostPolicy": "a host-supplied adapter (SPEC 11.5.2)",
+    "HostPlatform": "a host-supplied adapter (SPEC 11.5.2)",
+    "DirectProvider": "M2",
+    "Slack": "M2",
+    "Linear": "M2",
+    "Postgres": "M3",
+}
+
+
 class ConfigError(ValueError):
     """Boot-time configuration failure, phrased so an operator knows the next action.
 
@@ -126,17 +142,29 @@ class ConfigError(ValueError):
     """
 
 
-class DatabaseSettings(BaseModel):
+class _Section(BaseModel):
+    """Base for every settings section.
+
+    `extra="forbid"` must be repeated here rather than inherited from `Settings`:
+    pydantic does not propagate model config into nested models, so without it a
+    typo *inside* a section is silently discarded and the operator finds out at
+    M3 that the embedding model they set was never read.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class DatabaseSettings(_Section):
     """Postgres. The URL carries credentials, so it is never committed to YAML."""
 
     url: PostgresDsn
 
 
-class RedisSettings(BaseModel):
+class RedisSettings(_Section):
     url: RedisDsn
 
 
-class ModelSettings(BaseModel):
+class ModelSettings(_Section):
     """Role -> provider model name.
 
     The role strings have no defaults because no provider is chosen before M2
@@ -148,7 +176,7 @@ class ModelSettings(BaseModel):
     api_key: SecretStr | None = None
 
 
-class EmbeddingSettings(BaseModel):
+class EmbeddingSettings(_Section):
     """Embedding model and its vector width.
 
     Changing `dimension` after the pgvector column exists requires a migration
@@ -159,13 +187,13 @@ class EmbeddingSettings(BaseModel):
     dimension: int | None = Field(default=None, gt=0)
 
 
-class BudgetSettings(BaseModel):
+class BudgetSettings(_Section):
     """Spend ceiling. Decimal, because a USD ledger must not accumulate float error."""
 
     max_usd_per_run: Decimal | None = Field(default=None, gt=0)
 
 
-class SlackSettings(BaseModel):
+class SlackSettings(_Section):
     """Socket Mode credentials (SPEC 11.3). No signing secret: v1 has no HTTP endpoint.
 
     There is no `enabled` flag; `ports.channel` is the only switch, so the two
@@ -177,27 +205,27 @@ class SlackSettings(BaseModel):
     channel_id: str | None = None
 
 
-class TicketingSettings(BaseModel):
+class TicketingSettings(_Section):
     provider: Literal["linear"] = "linear"
     api_key: SecretStr | None = None
     team_id: str | None = None
     project_id: str | None = None
 
 
-class ToolsSettings(BaseModel):
+class ToolsSettings(_Section):
     """Read-tier tool backends (SPEC 2c). Absent locally unless the lab is running."""
 
     prometheus_url: HttpUrl | None = None
     loki_url: HttpUrl | None = None
 
 
-class WebhookSource(BaseModel):
+class WebhookSource(_Section):
     """One alert source's shared secret: `SMOKEJUMPER__WEBHOOKS__<SOURCE>__SECRET`."""
 
     secret: SecretStr | None = None
 
 
-class WebhookSettings(BaseModel):
+class WebhookSettings(_Section):
     grafana: WebhookSource = WebhookSource()
     datadog: WebhookSource = WebhookSource()
     pagerduty: WebhookSource = WebhookSource()
@@ -207,11 +235,14 @@ class WebhookSettings(BaseModel):
     alertmanager_allowlist: tuple[IPvAnyNetwork, ...] = ()
 
 
-class PortSelection(BaseModel):
+class PortSelection(_Section):
     """Which implementation backs each port (SPEC 5.10).
 
     Defaults are the substitutes, so a forgotten value is loud in `prod` instead
-    of silently plausible.
+    of silently plausible. The non-substitute values are the target contract and
+    are accepted by the type; `PLANNED_SELECTIONS` is what refuses the ones with
+    no implementation yet, so the error names the milestone instead of failing
+    later with an import error.
     """
 
     auth: Literal["AllowAll", "HostVerifier"] = "AllowAll"
@@ -226,6 +257,14 @@ class PortSelection(BaseModel):
     def stubbed(self) -> tuple[str, ...]:
         """Names of ports currently backed by a substitute."""
         return tuple(port for port, stub in STUB_SELECTIONS.items() if getattr(self, port) == stub)
+
+    def unimplemented(self) -> tuple[tuple[str, str, str], ...]:
+        """`(port, selection, milestone)` for each selection with no code behind it."""
+        return tuple(
+            (port, value, PLANNED_SELECTIONS[value])
+            for port in type(self).model_fields
+            if (value := getattr(self, port)) in PLANNED_SELECTIONS
+        )
 
 
 class Settings(BaseSettings):
@@ -324,6 +363,18 @@ class Settings(BaseSettings):
                     "SMOKEJUMPER__BUDGET__MAX_USD_PER_RUN to a positive USD amount. "
                     "Boot fails rather than defaulting to unlimited."
                 )
+
+        unimplemented = self.ports.unimplemented()
+        if unimplemented:
+            detail = ", ".join(
+                f"{port}={value} (arrives with {when})" for port, value, when in unimplemented
+            )
+            keys = ", ".join(f"SMOKEJUMPER__PORTS__{port.upper()}" for port, _, _ in unimplemented)
+            problems.append(
+                f"these port selections have no implementation yet: {detail}. "
+                f"Set {keys} to a substitute, or wait for the milestone that builds it. "
+                "Boot fails here rather than reporting a usable configuration."
+            )
 
         local_only = sorted(self.compose_profiles & LOCAL_ONLY_PROFILES)
         if local_only and self.env != "local":

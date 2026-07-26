@@ -20,10 +20,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Runs before any install, which is the point of a preflight.
-      - name: Host port preflight
-        run: python3 scripts/check_host_ports.py
-
       - name: Documentation contract
         run: python3 scripts/check_doc_contract.py
 
@@ -62,6 +58,12 @@ jobs:
       - name: Install
         run: uv sync --frozen --all-groups
 
+      # Belongs here rather than in `gates`: this is the job that binds host
+      # ports, so this is the only job where a collision means anything. Run
+      # before `up`, which is the point of a preflight.
+      - name: Host port preflight
+        run: python3 scripts/check_host_ports.py
+
       - name: Boot the default stack
         run: docker compose up -d --build --wait
 
@@ -80,8 +82,10 @@ jobs:
         if: failure()
         run: docker compose ps && docker compose logs --no-color
 
-      # Teardown keeps `-v` because this project name is disposable, which is
-      # the only context SPEC 12 permits it in.
+      # No `-v`. docker-compose.yml pins `name: smokejumper`, so this acts on
+      # the committed default project, and SPEC 12 forbids `-v` there because it
+      # deletes the Postgres and Redis volumes. Harmless on an ephemeral runner,
+      # destructive on a self-hosted one and in anything copied from here.
       - name: Tear down
         if: always()
-        run: docker compose down -v
+        run: docker compose down

@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
 from smokejumper.config import STUB_SELECTIONS
+from smokejumper.contracts.ticketing import TicketDraft, TicketUpdate
 from smokejumper.ports import stubs
 from smokejumper.ports.auth import AuthPort
 from smokejumper.ports.channel import ChannelAdapter
@@ -98,19 +100,33 @@ async def test_recorded_model_replays_then_refuses() -> None:
 
 
 async def test_fixture_ticketing_creates_once_then_updates() -> None:
-    """The dry-run adapter exercises create-vs-update without an account (SPEC 5.6)."""
+    """The dry-run adapter exercises create-vs-update without an account (SPEC 5.6).
+
+    Driven through the real `contracts/` models, not dicts — which is what makes
+    this a conformance test the M2 Linear adapter can be held to as well.
+    """
     ticketing = stubs.FixtureTicketing()
+    fingerprint = "a" * 64
+    run_id = uuid4()
 
-    assert await ticketing.find_open_by_fingerprint("fp-1") is None
+    assert await ticketing.find_open_by_fingerprint(fingerprint) is None
 
-    ref = await ticketing.create({"fingerprint": "fp-1", "title": "disk full"})
-    assert await ticketing.find_open_by_fingerprint("fp-1") == ref
+    ref = await ticketing.create(
+        TicketDraft(
+            fingerprint=fingerprint,
+            run_id=run_id,
+            title="disk full",
+            body_md="root volume at 98%",
+        )
+    )
+    assert await ticketing.find_open_by_fingerprint(fingerprint) == ref
 
-    await ticketing.update(ref, {"comment": "still firing"})
-    assert ticketing.tickets["fp-1"].updates == [{"comment": "still firing"}]
+    update = TicketUpdate(run_id=run_id, comment_md="still firing")
+    await ticketing.update(ref, update)
+    assert ticketing.tickets[fingerprint].updates == [update]
 
     await ticketing.close(ref, "resolved")
-    assert await ticketing.find_open_by_fingerprint("fp-1") is None
+    assert await ticketing.find_open_by_fingerprint(fingerprint) is None
 
 
 async def test_in_memory_store_round_trips_episodes() -> None:

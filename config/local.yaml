@@ -10,8 +10,10 @@ budget:
   max_usd_per_run: "1.00"
 
 # Substitutes everywhere a real implementation needs an account or a credential
-# that is not an M0 prerequisite (SPEC 11.3). Postgres is real because compose
-# runs it, so local retrieval exercises the same store as prod.
+# that is not an M0 prerequisite (SPEC 11.3). `memory` is a substitute too, and
+# deliberately: compose runs Postgres, but the `MemoryPort` Postgres adapter is
+# built at M3, so naming it here would select code that does not exist. This is
+# the one environment that must boot today, so it names only what exists.
 ports:
   auth: AllowAll
   governance: NoopGovernance
@@ -20,4 +22,4 @@ ports:
   platform: FixturePlatform
   channel: FakeChannel
   ticketing: FixtureTicketing
-  memory: Postgres
+  memory: InMemoryStore

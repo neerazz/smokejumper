@@ -20,7 +20,9 @@ from smokejumper.config import ConfigError, load_settings
 DB_URL = "postgresql+psycopg://smokejumper:pw@postgres:5432/smokejumper"
 REDIS_URL = "redis://redis:6379/0"
 
-# Values that satisfy every credential gate, for tests about something else.
+# The *target* prod selection. Most of these have no implementation until M2/M3,
+# so a load with these values reports that too; tests below assert on the specific
+# problem they care about rather than on a clean boot.
 REAL_PORTS = {
     "auth": "HostVerifier",
     "governance": "HostPolicy",
@@ -187,15 +189,38 @@ def test_prod_refuses_stub_ports(config_dir: Path) -> None:
 
 
 def test_prod_allows_single_tenant(config_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """`SingleTenant` is the v1 implementation, not a stub (SPEC 5.10)."""
+    """`SingleTenant` is the v1 implementation, not a stub (SPEC 5.10).
+
+    Asserted on the stub machinery rather than on a clean prod boot, because prod
+    also names Auth/Governance/Platform adapters that do not exist yet.
+    """
     for name, value in CREDENTIALS.items():
         monkeypatch.setenv(name, value)
 
-    settings = load_settings(env="prod", ports=REAL_PORTS, budget={"max_usd_per_run": "5"})
+    with pytest.raises(ConfigError) as raised:
+        load_settings(env="prod", ports=REAL_PORTS, budget={"max_usd_per_run": "5"})
 
-    assert settings.ports.tenancy == "SingleTenant"
-    assert settings.ports.stubbed() == ()
+    message = str(raised.value)
+    assert "stub ports" not in message, "none of REAL_PORTS is a stub"
+    assert "tenancy" not in message
     assert "tenancy" not in config.STUB_SELECTIONS
+    assert "SingleTenant" not in config.PLANNED_SELECTIONS
+
+
+def test_a_selection_with_no_implementation_fails_boot(config_dir: Path) -> None:
+    """`check-config` must not answer "valid" for a stack that cannot start.
+
+    Eight of the fifteen selectable values name adapters a later milestone builds.
+    Accepting them silently would make the one M0 command whose job is to say
+    whether configuration is usable answer yes when it is not.
+    """
+    with pytest.raises(ConfigError) as raised:
+        load_settings(ports={"ticketing": "Linear"})
+
+    message = str(raised.value)
+    assert "no implementation yet" in message
+    assert "ticketing=Linear (arrives with M2)" in message
+    assert "SMOKEJUMPER__PORTS__TICKETING" in message
 
 
 def test_prod_requires_an_explicit_spend_ceiling(
@@ -237,18 +262,16 @@ def test_the_removed_fixtures_profile_is_refused(config_dir: Path) -> None:
 def test_obs_profile_is_allowed_outside_local(
     config_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Only the lab and its fault injection are local-only (SPEC 2c)."""
-    for name, value in CREDENTIALS.items():
-        monkeypatch.setenv(name, value)
+    """Only the lab and its fault injection are local-only (SPEC 2c).
 
-    settings = load_settings(
-        env="prod",
-        ports=REAL_PORTS,
-        budget={"max_usd_per_run": "5"},
-        compose_profiles="obs",
-    )
+    Run against `dev` with the default substitutes, so the only rule in play is
+    the profile rule. Using `prod` would fail on the stub gate and prove nothing
+    about `obs`.
+    """
+    settings = load_settings(env="dev", compose_profiles="obs")
 
     assert settings.compose_profiles == frozenset({"obs"})
+    assert settings.env == "dev"
 
 
 def test_compose_profiles_read_dockers_own_variable(
@@ -334,31 +357,45 @@ def test_committed_local_config_boots() -> None:
     assert str(settings.tools.prometheus_url) == "http://prometheus:9090/"
 
 
-def test_committed_dev_config_boots(monkeypatch: pytest.MonkeyPatch) -> None:
-    """dev selects real Slack/Linear/model, so it needs their credentials."""
+def test_committed_dev_config_names_adapters_that_arrive_at_m2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """dev selects real Slack/Linear/model, none of which exist before M2.
+
+    So dev cannot boot yet, and says so with the milestone named. The credentials
+    are supplied here to prove that is the *only* thing standing in the way —
+    otherwise this would pass for the wrong reason.
+    """
     for name, value in CREDENTIALS.items():
         monkeypatch.setenv(name, value)
 
-    settings = load_settings(env="dev")
+    with pytest.raises(ConfigError) as raised:
+        load_settings(env="dev")
 
-    assert settings.budget.max_usd_per_run == Decimal("2.00")
-    assert settings.ports.ticketing == "Linear"
+    message = str(raised.value)
+    assert "no implementation yet" in message
+    assert "arrives with M2" in message
+    assert "is enabled but unset" not in message, "credentials were supplied"
 
 
 def test_committed_prod_config_has_no_stub_and_no_ceiling(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """prod.yaml selects only real ports, and deliberately supplies no ceiling."""
+    """prod.yaml selects only real ports, and deliberately supplies no ceiling.
+
+    prod also cannot boot today — SPEC 11.5.2 says so outright, because the
+    host-supplied Auth/Governance/Platform adapters do not exist. What this test
+    holds is that the reason is never "you left a stub in prod".
+    """
     for name, value in CREDENTIALS.items():
         monkeypatch.setenv(name, value)
 
     with pytest.raises(ConfigError) as raised:
         load_settings(env="prod")
-    assert "SMOKEJUMPER__BUDGET__MAX_USD_PER_RUN" in str(raised.value)
-    assert "stub ports" not in str(raised.value)
-
-    monkeypatch.setenv("SMOKEJUMPER__BUDGET__MAX_USD_PER_RUN", "25")
-    assert load_settings(env="prod").ports.stubbed() == ()
+    message = str(raised.value)
+    assert "SMOKEJUMPER__BUDGET__MAX_USD_PER_RUN" in message
+    assert "stub ports" not in message
+    assert "a host-supplied adapter" in message
 
 
 def test_env_example_boots_when_copied(

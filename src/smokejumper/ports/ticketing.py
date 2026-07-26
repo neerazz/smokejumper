@@ -3,18 +3,18 @@
 v1 ships the Linear adapter; GitHub Issues, Jira, and Asana are later adapters
 behind this same interface, selected by `settings.ticketing.provider`.
 
-The mapping aliases stand in for the provider-neutral contract models that do not
-exist yet; replacing them is a three-line edit once `contracts/` lands.
+The payload types come from `contracts/`, which SPEC 3 calls the source of truth.
+Redefining them here as bare mappings would give the codebase two `TicketDraft`s
+and leave the adapter conformance suite (SPEC 5.6) checking a type with no shape.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any, Protocol
+from typing import Protocol
 
-TicketDraft = Mapping[str, Any]
-TicketUpdate = Mapping[str, Any]
-TicketRef = Mapping[str, Any]
+from smokejumper.contracts.ticketing import TicketDraft, TicketRef, TicketUpdate
+
+__all__ = ["TicketDraft", "TicketRef", "TicketUpdate", "TicketingPort"]
 
 
 class TicketingPort(Protocol):

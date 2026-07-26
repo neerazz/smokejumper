@@ -11,12 +11,7 @@ on how configuration is assembled (SPEC 2d).
 from __future__ import annotations
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import (
-    AsyncEngine,
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 
 def create_engine(database_url: str) -> AsyncEngine:
@@ -29,15 +24,6 @@ def create_engine(database_url: str) -> AsyncEngine:
     from.
     """
     return create_async_engine(database_url, pool_pre_ping=True)
-
-
-def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
-    """Session factory bound to `engine`.
-
-    `expire_on_commit=False` because an expired attribute reloads lazily, and a
-    lazy reload inside async code raises instead of blocking.
-    """
-    return async_sessionmaker(engine, expire_on_commit=False)
 
 
 async def check_connection(engine: AsyncEngine) -> None:

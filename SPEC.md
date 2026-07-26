@@ -5,7 +5,7 @@
 > [component diagram](architecture/smokejumper-components.svg); this document refines it into
 > contracts, component behavior, flows, data, and verifiable milestones.
 >
-> **Status: design complete; implementation not started. Reviewed 2026-07-10; architecture
+> **Status: M0 implemented 2026-07-26; M1–M6 are design only. Reviewed 2026-07-10; architecture
 > updated 2026-07-25; scope subtracted 2026-07-26.** The 2026-07-25 pass added the local
 > incident lab (§2c), per-environment configuration (§2d), one MCP domain (§5.5), OTel/Phoenix,
 > and the prompt registry — decisions 11–15. The 2026-07-26 subtraction pass removed five layers
@@ -60,12 +60,12 @@ but ships with zero privileged tools enabled), the Distiller (deferred entirely 
 |---|---|---|
 | Language | Python 3.12+ | ecosystem; team lane |
 | API/webhooks | FastAPI + uvicorn | standard, async |
-| Agent runtime | LangGraph + `langgraph-checkpoint-postgres` 3.x (**must set `LANGGRAPH_STRICT_MSGPACK=true`** — CVE-2026-28277 deserialization hardening). Supervisor topology is **copied as a pattern** (tool-calling supervisor per LangChain's guide), NOT a dependency on `langgraph-supervisor` — its maintainers steer users away from it | durability via Postgres checkpointer is enough for v1; Temporal deferred |
+| Agent runtime | LangGraph + `langgraph-checkpoint-postgres` 3.x (**must set `LANGGRAPH_STRICT_MSGPACK=true` in the process environment before any `langgraph` import** — CVE-2026-28277 deserialization hardening. The serializer reads it into a module-level constant at import time, so setting it from Python, including via the settings object, silently leaves strict mode off; it belongs in the container environment). Supervisor topology is **copied as a pattern** (tool-calling supervisor per LangChain's guide), NOT a dependency on `langgraph-supervisor` — its maintainers steer users away from it | durability via Postgres checkpointer is enough for v1; Temporal deferred |
 | MCP layer | FastMCP 3.x (version-pinned) implements our servers and the application client/policy seam; the servers run in the app process and the one client reaches them over FastMCP's in-memory transport. `langchain-mcp-adapters` loads that governed toolset into LangGraph | one governed seam, and no network hop to reach our own tools; see ADR-0010/0017 |
 | Queue | Redis Streams (consumer groups) | burst absorption, replayable inbox |
 | Persistence | SQLAlchemy 2 async + psycopg 3 + Alembic over **one Postgres 16** + pgvector | application state, vectors, checkpoints, and the JSONL run/file-offset index share one DB; audit events themselves stay in JSONL |
 | Knowledge | pgvector similarity over `episodes` + YAML recipes; `episodes` carries bi-temporal `valid_at`/`recorded_at` | facts change; never lose what we believed at decision time. Edge tables and graph expansion are post-v1 behind `MemoryPort` (§5.4) |
-| LLM + embeddings | `ModelProvider` calls the provider SDK directly; provider and model are config per role (`worker`, `synthesis`, `embedding`) with no provider code outside the port (ADR-0007) | `ports/model.py` is the only model-call seam and records B8 |
+| LLM + embeddings | `ModelProvider` calls the provider SDK directly; model is config per role (`worker`, `synthesis`), with embedding configured separately under `embedding:` because it is a different call shape, not a third role | `ports/model.py` is the only model-call seam and records B8 |
 | Packaging | `uv` + `pyproject.toml`, src layout, package name `smokejumper` | PyPI name is free |
 | Quality gates | ruff + pyright + pytest; CI = GitHub Actions | |
 
@@ -184,7 +184,7 @@ injected by the platform's secret manager. `config/` stays diffable and safe to 
 | Ticketing (§5.6) | dry-run / fixture | test Linear team | prod Linear team |
 | Slack | dev workspace | dev workspace | real workspace |
 | Federated MCP (§5.5) | stub descriptor | dev endpoint | prod endpoint |
-| Ports (§5.10) | stubs allowed | stubs warn | **security-relevant stubs forbidden** |
+| Ports (§5.10) | stubs allowed | stubs allowed | **security-relevant stubs forbidden** |
 
 ### Environment-gated safety rules (enforced at boot, not documented-and-hoped)
 - **`prod` refuses to start if any security-relevant port is a stub** (`AllowAll`, `NoopGovernance`,
@@ -534,10 +534,13 @@ truth, which is why no v1 acceptance criterion depends on distillation.
 | `MemoryPort` | Postgres+pgvector bi-temporal episode store | in-memory test adapter | in-memory forbidden |
 
 `EnvCredentials` is the runtime secret resolver used by real adapters; it is not a security
-decision and is not itself a stub. Every selected substitute logs its identity at boot.
+decision and is not itself a stub. Each substitute logs its identity when it is constructed, so a
+substitute in use is visible in the log. Nothing constructs them from the port selection yet — the
+factory that reads `ports.*` and builds them arrives at M2 with the first real consumer, and until
+then the selection is validated but not instantiated.
 
 **Environment gate (§2d):** stub selection is env-aware and enforced, not advisory —
-`local` allows stubs, `dev` warns, and **`prod` refuses to boot** while any security-relevant
+`local` and `dev` allow stubs, and **`prod` refuses to boot** while any security-relevant
 port is stubbed. A stub that only writes a log line is indistinguishable from a real port to
 everything except a human reading logs, which is exactly the failure ADR-0004 flagged and did
 not close.
@@ -779,7 +782,6 @@ human's convenience only.
 | Loki | `lab` | `loki:3100` | HTTP | none | private observability network | `log.search` tool |
 | Promtail | `lab` | no listener | outbound push to Loki | none | internal only | Loki |
 | faultbox | `lab` | `faultbox:8080` | HTTP | none | forbidden outside `local` | lab operator |
-| replayer | `fixtures` | no listener | outbound HTTP to app | none | forbidden outside `local` | Receiver |
 | Phoenix UI | `obs` | `phoenix:6006` | HTTP | `127.0.0.1:${PHOENIX_HOST_PORT:-6006}:6006` | authenticated internal UI if enabled | operator |
 | Phoenix OTLP | `obs` | `phoenix:4317` | OTLP/gRPC | none | internal observability network | app |
 | Provider / Slack / Linear APIs | — | remote `443` | HTTPS/WSS with certificate verification | outbound only | egress allowed from app | `ModelProvider`, Channel/Ticketing adapters |
@@ -821,7 +823,7 @@ enabled adapter fails boot with the variable name, never during an incident.
 | Input | Exact configuration surface | Needed by | Owner action / local fallback |
 |---|---|---:|---|
 | One LLM provider | `SMOKEJUMPER__MODEL__API_KEY` carries the provider key to the app process; `ModelProvider` passes it to the SDK explicitly rather than relying on the SDK's ambient variable, so the key has exactly one name here. Provider and role model identifiers are non-secret values under `model:` in `config/<env>.yaml` (§2d) | M2 | Choose one live provider and its worker/synthesis model strings. Tests use recorded responses; a local Ollama endpoint needs no key. |
-| Embedding model | concrete embedding model under `model:` in `config/<env>.yaml` plus `SMOKEJUMPER__EMBEDDING__DIMENSION` | M3 | Choose before the pgvector migration; **the dimension is immutable without a migration.** Recommended default: a 1536-d model from the provider already selected. |
+| Embedding model | `SMOKEJUMPER__EMBEDDING__MODEL` and `SMOKEJUMPER__EMBEDDING__DIMENSION`, or the same keys under `embedding:` in `config/<env>.yaml` — a separate section from `model:`, because embedding is not a `ModelRole` | M3 | Choose before the pgvector migration; **the dimension is immutable without a migration.** Recommended default: a 1536-d model from the provider already selected. |
 | Spend ceiling | `SMOKEJUMPER__BUDGET__MAX_USD_PER_RUN` | M2 | Explicit in every environment. Local default: `1.00`; dev default: `2.00`; prod has no default and fails closed. |
 | Slack bot token | `SLACK_BOT_TOKEN` (`xoxb-…`) | M2 | Create/install one Slack app in the development workspace. |
 | Slack app token | `SLACK_APP_TOKEN` (`xapp-…`, `connections:write`) | M2 | Enable Socket Mode and create the app-level token. No `SLACK_SIGNING_SECRET` is required for the v1 Socket Mode transport. |
@@ -896,11 +898,12 @@ docstring.
 makes the order buildable, and it is why the MCP manifest, the FastMCP targets, and tier
 enforcement all arrive at M5 rather than being asserted earlier against files that do not exist.
 
-**Everything below is planned.** At this revision the repository contains
-`src/smokejumper/__init__.py`, `scripts/check_doc_contract.py`, `tests/`, and `pyproject.toml`
-with `uv.lock`; the five universal gates run and pass, and the declared `smokejumper` console
-script does not yet import because M0.1 has not landed. A command stops being planned when its
-milestone's exit evidence exists — not when it looks correct.
+**M0 has landed; M1–M6 below are planned.** A command stops being planned when its milestone's
+exit evidence exists — not when it looks correct. M0's does: the three-service stack boots,
+`alembic upgrade head` applies from empty, `/healthz` reports both dependencies, `smokejumper
+check-config` validates inside the container, and the five universal gates pass. Every M1–M6
+command is still planned, including `smokejumper fixtures replay`, `replay`, `eval`, and `logs`,
+which do not exist yet.
 
 ### Universal gates
 
@@ -914,10 +917,12 @@ uv run pyright
 python3 scripts/check_doc_contract.py
 ```
 
-This is the entire enforced set and CI runs exactly these, so the list cannot drift from what is
-actually checked. `pytest` also invokes the documentation-contract checker, which is why a
-docs-only change still runs the whole set. Compose-changing packets additionally run
-`docker compose config`.
+This is the entire enforced set for a commit, and CI's `gates` job runs exactly these, so the list
+cannot drift from what is actually checked. `pytest` also invokes the documentation-contract
+checker, which is why a docs-only change still runs the whole set. Compose-changing packets
+additionally run `docker compose config`. CI adds one stack-only step — the host-port preflight in
+the `stack` job, ahead of `docker compose up` — because a port collision can only exist in the job
+that binds ports.
 
 ### Where a command runs
 
@@ -1024,7 +1029,9 @@ configuration, and no MCP at M0.
 **M0.4 · Hexagonal ports and environment stubs**
 - Create: `src/smokejumper/ports/{auth,governance,tenancy,model,platform,ticketing,memory,channel}.py`,
   `src/smokejumper/ports/stubs.py`, `tests/unit/test_ports.py`.
-- RED: local accepts loud stubs; dev warns; prod rejects every security-relevant stub.
+- RED: local and dev accept loud stubs; prod rejects every security-relevant stub; and any
+  selection naming an adapter a later milestone builds fails boot with that milestone named,
+  so `check-config` never reports a configuration that cannot start.
 - GREEN: protocols plus the smallest stubs that satisfy them. `ports/model.py` is declared here
   and implemented at M2. Commit: `feat: add environment-gated ports`.
 
@@ -1062,12 +1069,14 @@ docker compose down
 
 ### M1—recorder, receiver, queue, and local incident lab
 
-1. **Recorder first:** `recorder/writer.py`, `recorder/broadcast.py`, the `runs`-index migration,
+1. **Recorder first:** `recorder/writer.py`, `recorder/broadcast.py`, the `runs` repository
+   (M0's first migration already created `events` and `runs`, so M1 adds the code that writes
+   them, not the tables),
    `smokejumper logs --follow`, and `smokejumper runs latest --format id`. Tests: append-only
    JSONL, monotonic per-run `seq`, process-unique files, byte offsets, failure counter.
    `runs latest --format id` prints one run id and nothing else, because the acceptance set
    consumes its stdout.
-2. **Inbound persistence:** events and quarantine migration plus repository; 401 with an audit
+2. **Inbound persistence:** the events repository and its quarantine path; 401 with an audit
    entry for an unverifiable payload, 202 with a quarantine row for an unparseable one.
 3. **Normalizers:** generic, Grafana, Datadog, PagerDuty, and Alertmanager adapters built from
    `fixtures/webhooks/`; per source a golden valid payload, an invalid one, a signature case, and
