@@ -5,8 +5,9 @@
 > [component diagram](architecture/smokejumper-components.svg); this document refines it into
 > contracts, component behavior, flows, data, and verifiable milestones.
 >
-> **Status: M0 implemented 2026-07-26, plus M1's Datadog ingestion path; the rest of M1–M6 is
-> design only. Reviewed 2026-07-10; architecture
+> **Status: the alert→conclusion→ticket path is implemented and verified end to end 2026-07-26
+> (M0, plus M1's Datadog ingestion, recorder, and worker, plus M2's actions). Triage is
+> deterministic, not model-backed — see §5.3a. Reviewed 2026-07-10; architecture
 > updated 2026-07-25; scope subtracted 2026-07-26.** The 2026-07-25 pass added the local
 > incident lab (§2c), per-environment configuration (§2d), one MCP domain (§5.5), OTel/Phoenix,
 > and the prompt registry — decisions 11–15. The 2026-07-26 subtraction pass removed five layers
@@ -409,6 +410,27 @@ with every payload.
   Auditor. (DB Investigator, Code Investigator, Precedent Researcher are registry entries
   marked `enabled: false` with prompts stubbed.)
 - Sub-agents are stateless: input = Assignment, output = Finding; no memory between runs.
+
+### 5.3a Triage — deterministic today, model-backed later
+
+`intelligence/triage.py` turns an `AgentEvent` into a `Conclusion` (B6) without calling a model.
+This is the stage the worker runs, and it is a real implementation rather than a stub:
+
+- Every finding is derived from data the alert carries — monitor identity, severity, entity set,
+  delivery count — so each is checkable against the recorded event.
+- The status ladder stops at `needs_human` (escalating severity) or `inconclusive`. It never
+  reaches `root_caused` or `mitigated`, because a root cause needs metric history, a deploy
+  timeline, or log correlation, and none of those exist before the read-tier tools at M5. A
+  Conclusion that overclaims is worse than one that stops early and says why.
+- "No root cause determined" is emitted as an explicit finding, so the gap is visible in the
+  output rather than inferred from its absence.
+- It is deterministic, which is what makes replay meaningful: the same event yields the same B6.
+
+**Where the model goes.** A model-backed implementation replaces this behind the same signature,
+`triage(event) -> Conclusion`, calling through `ports/model.py`. Nothing else in the pipeline
+changes: the worker, the actions stage, the audit record, and the ticket contract are all
+indifferent to how the Conclusion was reached. Selecting it is `SMOKEJUMPER__PORTS__MODEL` moving
+from `RecordedModel` to `DirectProvider` plus a provider credential (§11.3).
 
 ### 5.4 Knowledge
 - Façade: `retrieve(ctx: AgentEvent | str, budget) → KnowledgeBundle`. pgvector similarity over

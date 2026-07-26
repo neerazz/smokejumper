@@ -56,6 +56,10 @@ services:
       # actually started with. Without it the rule refusing `lab` outside
       # `local` (SPEC 2d) inspects an empty list and passes vacuously.
       COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
+    # The audit record must outlive the container: it is the source of truth for
+    # replay (SPEC 5.8), so losing it on `down` would lose every run's evidence.
+    volumes:
+      - audit-logs:/app/logs
     # The only host-published port in the stack, and loopback-only: an alert
     # webhook receiver bound to 0.0.0.0 is reachable from the local network.
     ports:
@@ -78,3 +82,4 @@ services:
 volumes:
   postgres-data:
   redis-data:
+  audit-logs:

@@ -29,6 +29,12 @@ COPY migrations ./migrations
 # where the package-relative default would resolve inside site-packages.
 COPY config ./config
 ENV SMOKEJUMPER_CONFIG_DIR=/app/config
+# The audit sink is the source of truth (SPEC 5.8), so the runtime user must be
+# able to write it. /app is root-owned, and the app runs as uid 10001, so the
+# directory is created and chowned here rather than at first write — discovering
+# this at boot is a crash, and discovering it mid-incident is a lost audit trail.
+RUN mkdir -p /app/logs && chown smokejumper:smokejumper /app/logs
+ENV SMOKEJUMPER_LOG_DIR=/app/logs
 USER smokejumper
 EXPOSE 8000
 # v1 is a single instance (SPEC 1), so the app container is the only writer and

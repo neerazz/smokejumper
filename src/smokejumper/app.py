@@ -11,16 +11,21 @@ Webhook routes arrive with the Receiver in M1 (SPEC 5.1).
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
+from sqlalchemy import text
 
 from smokejumper.persistence.database import check_connection, create_engine
 from smokejumper.receiver.routes import build_router
+from smokejumper.recorder.writer import Recorder
+from smokejumper.worker import worker_task
 
 # A dependency that has not answered in three seconds is down as far as an
 # orchestrator is concerned; without a bound, a black-holed socket would hang
@@ -56,14 +61,18 @@ def create_app(
     """
     engine = create_engine(database_url)
     redis = Redis.from_url(redis_url)
+    recorder = Recorder(Path(os.environ.get("SMOKEJUMPER_LOG_DIR", "logs")))
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        try:
-            yield
-        finally:
-            await engine.dispose()
-            await redis.aclose()
+        # The worker runs beside the API so `docker compose up` yields a system
+        # that actually processes an alert, rather than one that only accepts it.
+        async with worker_task(engine, redis, recorder):
+            try:
+                yield
+            finally:
+                await engine.dispose()
+                await redis.aclose()
 
     app = FastAPI(title="Smokejumper", version="0.1.0", lifespan=lifespan)
     app.include_router(build_router(engine=engine, redis=redis, datadog_secret=datadog_secret))
@@ -78,6 +87,55 @@ def create_app(
         return JSONResponse(
             status_code=200 if healthy else 503,
             content={"status": "ok" if healthy else "unhealthy", **checks},
+        )
+
+    @app.get("/runs/{fingerprint}")
+    async def run_for(fingerprint: str) -> JSONResponse:
+        """What the system concluded about one incident, and the ticket it filed.
+
+        The operator-facing read path. Without it the only way to see an outcome
+        is to open psql, which makes the system unusable by the person it is for.
+        """
+        async with engine.connect() as connection:
+            row = (
+                await connection.execute(
+                    text(
+                        """
+                        SELECT r.run_id, r.status, r.conclusion, r.finished_at,
+                               r.audit_log_file, r.audit_start_offset, r.audit_end_offset,
+                               t.external_id, t.update_count
+                          FROM runs r
+                          LEFT JOIN tickets t ON t.fingerprint = r.fingerprint
+                         WHERE r.fingerprint = :fingerprint
+                      ORDER BY r.started_at DESC
+                         LIMIT 1
+                        """
+                    ),
+                    {"fingerprint": fingerprint},
+                )
+            ).first()
+
+        if row is None:
+            return JSONResponse(status_code=404, content={"status": "no run for fingerprint"})
+
+        conclusion = row.conclusion or {}
+        return JSONResponse(
+            content={
+                "run_id": str(row.run_id),
+                "status": row.status,
+                "conclusion_status": conclusion.get("status"),
+                "confidence": conclusion.get("confidence"),
+                "summary_md": conclusion.get("summary_md"),
+                "findings": conclusion.get("findings", []),
+                "proposed_actions": conclusion.get("proposed_actions", []),
+                "ticket": row.external_id,
+                "ticket_updates": row.update_count,
+                "audit": {
+                    "file": row.audit_log_file,
+                    "start_offset": row.audit_start_offset,
+                    "end_offset": row.audit_end_offset,
+                },
+            }
         )
 
     return app

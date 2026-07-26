@@ -47,14 +47,21 @@ def _query(repo_root: Path, sql: str) -> str:
     return completed.stdout.strip()
 
 
-def test_schema_holds_exactly_the_m0_tables(repo_root: Path) -> None:
+def test_schema_holds_exactly_the_tables_with_writers(repo_root: Path) -> None:
+    """Asserted as an exact set, not by membership.
+
+    The point is to catch a table created before the code that writes it. Each
+    name below has a writer today: `events` from the Receiver, `runs` and
+    `tickets` from the worker. `approvals` (M5) and `episodes` (M3) are
+    deliberately absent, and adding either early should fail here.
+    """
     tables = _query(
         repo_root,
         "SELECT table_name FROM information_schema.tables"
         " WHERE table_schema = 'public' ORDER BY table_name",
     )
 
-    assert tables.splitlines() == ["alembic_version", "events", "runs"]
+    assert tables.splitlines() == ["alembic_version", "events", "runs", "tickets"]
 
 
 def _expected_head(repo_root: Path) -> str:
