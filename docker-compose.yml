@@ -48,6 +48,10 @@ services:
       SMOKEJUMPER_ENV: ${SMOKEJUMPER_ENV:-local}
       SMOKEJUMPER__DATABASE__URL: postgresql+psycopg://smokejumper:${POSTGRES_PASSWORD:-smokejumper}@postgres:5432/smokejumper
       SMOKEJUMPER__REDIS__URL: redis://redis:6379/0
+      # The token Datadog is configured to send as X-Smokejumper-Token. Empty by
+      # default, and an empty secret rejects every delivery (SPEC 5.1) rather than
+      # accepting unauthenticated alerts.
+      SMOKEJUMPER__WEBHOOKS__DATADOG__SECRET: ${SMOKEJUMPER__WEBHOOKS__DATADOG__SECRET:-}
       # Compose's own variable, forwarded so the app sees the profiles it was
       # actually started with. Without it the rule refusing `lab` outside
       # `local` (SPEC 2d) inspects an empty list and passes vacuously.

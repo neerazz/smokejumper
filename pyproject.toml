@@ -66,9 +66,11 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Fixture secrets are not real secrets; subprocess calls in tests invoke our own
-# scripts with interpreter-controlled arguments, not untrusted input.
-"tests/**" = ["S105", "S106", "S603"]
+# S105/S106: fixture secrets are not real secrets.
+# S603/S607: tests shell out to our own scripts and to `docker compose` with
+# interpreter-controlled arguments, never untrusted input.
+# S608: the only interpolated values are test-generated UUIDs, never request data.
+"tests/**" = ["S105", "S106", "S603", "S607", "S608"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,22 @@
+{
+  "_comment": "Datadog webhook delivery as produced by the payload template in SPEC 11.3. Modelled on a real production monitor: a metric alert on feature-store online table lag, whose name follows the 'Feature Store — <what>' convention and whose message uses Datadog's {{#is_alert}} mustache section. Datadog substitutes $VARIABLES before POSTing, so these are resolved values, not templates.",
+  "alert_id": "142857301",
+  "alert_transition": "Triggered",
+  "alert_type": "error",
+  "priority": "P2",
+  "title": "[Triggered on {table:merchant_features}] Feature Store — online table lag >30h",
+  "body": "Feature store online table `merchant_features` has not been updated in >30h. Decisioning may be serving stale features.\n\nmetric: feature_store.online_table.hours_since_update\nvalue: 34.2\nthreshold: 30.0",
+  "tags": "env:prod,service:feature-store,table:merchant_features,region:us-east-1,team:data,monitor:online_table_lag",
+  "date": "1785090600000",
+  "last_updated": "1785090600000",
+  "aggreg_key": "8f14e45fceea167a5a36dedd4bea2543",
+  "metric": "feature_store.online_table.hours_since_update",
+  "event_type": "query_alert_monitor",
+  "org": {
+    "id": "1000012345",
+    "name": "parafin"
+  },
+  "link": "https://app.datadoghq.com/event/event?id=7654321098765432100",
+  "hostname": null,
+  "snapshot": "https://p.datadoghq.com/snapshot/view/dd-snapshots-prod/org_1000012345/2026-07-26/abc123.png"
+}

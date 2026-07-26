@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 
 from smokejumper.persistence.database import check_connection, create_engine
+from smokejumper.receiver.routes import build_router
 
 # A dependency that has not answered in three seconds is down as far as an
 # orchestrator is concerned; without a bound, a black-holed socket would hang
@@ -37,11 +38,21 @@ async def _probe(check: Awaitable[Any]) -> str:
     return "ok"
 
 
-def create_app(*, database_url: str, redis_url: str) -> FastAPI:
+def create_app(
+    *,
+    database_url: str,
+    redis_url: str,
+    datadog_secret: str = "",
+) -> FastAPI:
     """Build the application against explicit dependency URLs.
 
     URLs are injected rather than read from a settings object so that a test can
     point the app at an unreachable dependency and assert the failure path.
+
+    `datadog_secret` defaults to empty, and an empty secret makes every Datadog
+    delivery fail verification (SPEC 5.1). That is the intended default: a
+    deployment that forgot to configure the secret must reject alerts loudly
+    rather than accept unauthenticated ones.
     """
     engine = create_engine(database_url)
     redis = Redis.from_url(redis_url)
@@ -55,6 +66,7 @@ def create_app(*, database_url: str, redis_url: str) -> FastAPI:
             await redis.aclose()
 
     app = FastAPI(title="Smokejumper", version="0.1.0", lifespan=lifespan)
+    app.include_router(build_router(engine=engine, redis=redis, datadog_secret=datadog_secret))
 
     @app.get("/healthz")
     async def healthz() -> JSONResponse:
@@ -85,7 +97,9 @@ def app_from_env() -> FastAPI:
     from smokejumper.config import load_settings
 
     settings = load_settings()
+    secret = settings.webhooks.datadog.secret
     return create_app(
         database_url=str(settings.database.url),
         redis_url=str(settings.redis.url),
+        datadog_secret="" if secret is None else secret.get_secret_value(),
     )

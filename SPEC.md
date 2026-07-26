@@ -5,7 +5,8 @@
 > [component diagram](architecture/smokejumper-components.svg); this document refines it into
 > contracts, component behavior, flows, data, and verifiable milestones.
 >
-> **Status: M0 implemented 2026-07-26; M1–M6 are design only. Reviewed 2026-07-10; architecture
+> **Status: M0 implemented 2026-07-26, plus M1's Datadog ingestion path; the rest of M1–M6 is
+> design only. Reviewed 2026-07-10; architecture
 > updated 2026-07-25; scope subtracted 2026-07-26.** The 2026-07-25 pass added the local
 > incident lab (§2c), per-environment configuration (§2d), one MCP domain (§5.5), OTel/Phoenix,
 > and the prompt registry — decisions 11–15. The 2026-07-26 subtraction pass removed five layers
@@ -372,7 +373,8 @@ with every payload.
   the same port — designed for, not built (red-team: building them in v1 is scope creep).
 - Per-source alert normalizers are hand-written (verified: no OSS library does this),
   **seeded from Alerta's Apache-2.0 `alerta/webhooks/` parsers** (grafana, prometheus,
-  pagerduty, cloudwatch, …) with attribution. Signature verification is per-source HMAC,
+  pagerduty, cloudwatch, …) with attribution. Verification is per-source and uses the strongest
+  scheme each vendor actually offers, which is **not** HMAC for all of them — see §11.5.6,
   also hand-written (Alertmanager sends none — allowlist by network instead).
 - One FastAPI route per HTTP source: `/webhooks/grafana`, `/webhooks/alertmanager`,
   `/webhooks/datadog`, `/webhooks/pagerduty`, `/webhooks/generic`. **Slack runs in
@@ -832,7 +834,7 @@ enabled adapter fails boot with the variable name, never during an incident.
 | Linear API key | `LINEAR_API_KEY` | M2 | A personal API key is the v1 single-tenant choice; OAuth is post-v1 distribution work. |
 | Linear team | `SMOKEJUMPER__TICKETING__TEAM_ID` | M2 | Choose the development team UUID. The adapter discovers and validates workflow-state IDs at boot. |
 | Linear project | `SMOKEJUMPER__TICKETING__PROJECT_ID` | M2 | Optional; omit to create team-level issues. |
-| Webhook verification | `SMOKEJUMPER__WEBHOOKS__<SOURCE>__SECRET` for Grafana, Datadog, PagerDuty, and generic HTTP | M1 tests; dev/prod live intake | Local fixtures use non-secret test values. Alertmanager has no signature and is accepted only from the configured network allowlist. |
+| Webhook verification | `SMOKEJUMPER__WEBHOOKS__<SOURCE>__SECRET` for Grafana, Datadog, PagerDuty, and generic HTTP | M1 tests; dev/prod live intake | Local fixtures use non-secret test values. **Datadog** carries this secret in the `X-Smokejumper-Token` header configured on the webhook — Datadog signs nothing (§11.5.6). Alertmanager has neither, and is accepted only from the configured network allowlist. |
 | Postgres / Redis | `SMOKEJUMPER__DATABASE__URL`, `SMOKEJUMPER__REDIS__URL` | M0 | Compose supplies local values. dev/prod need managed endpoints, credentials, and TLS policy. |
 | Prometheus / Loki | `SMOKEJUMPER__TOOLS__PROMETHEUS_URL`, `SMOKEJUMPER__TOOLS__LOKI_URL` plus optional auth headers | M1/M5 | Compose supplies local URLs. dev/prod require real backend endpoints and read-only credentials. |
 | Federated MCP server | descriptor endpoint, auth reference, and tool allowlist under `mcp/federated/descriptors/` | M5 | Local uses a stub descriptor. Real endpoints are not required for v1 acceptance. |
@@ -877,7 +879,14 @@ not have to invent them:
    is post-v1.
 5. `AgentEvent.kind` includes `storm`; a coalesced storm is not disguised as a normal alert.
 6. Generic HTTP webhooks use `X-Smokejumper-Signature: sha256=<hex>` over the raw request body
-   with the configured shared secret. Vendor adapters follow each vendor's documented scheme.
+   with the configured shared secret. Vendor adapters follow each vendor's documented scheme, and
+   **Datadog documents no request signing at all** — its webhooks are operator-defined payloads
+   with optional custom headers, so verification is a constant-time comparison of a shared token
+   in `X-Smokejumper-Token`. That is a bearer secret and is weaker than an HMAC: it is replayable
+   by anyone who observes it. The weakness is the vendor's, and pretending to verify a Datadog
+   signature would be worse, because it would look like a control while checking something the
+   sender cannot produce. An empty configured secret rejects every delivery rather than accepting
+   unauthenticated alerts.
 7. Approval tokens are opaque 256-bit random values; only a hash is stored with the bound
    `(thread_id, tool_call)` and expiry. Consumption is one atomic database update, so no token
    signing key is required.
@@ -898,12 +907,26 @@ docstring.
 makes the order buildable, and it is why the MCP manifest, the FastMCP targets, and tier
 enforcement all arrive at M5 rather than being asserted earlier against files that do not exist.
 
-**M0 has landed; M1–M6 below are planned.** A command stops being planned when its milestone's
-exit evidence exists — not when it looks correct. M0's does: the three-service stack boots,
-`alembic upgrade head` applies from empty, `/healthz` reports both dependencies, `smokejumper
-check-config` validates inside the container, and the five universal gates pass. Every M1–M6
-command is still planned, including `smokejumper fixtures replay`, `replay`, `eval`, and `logs`,
-which do not exist yet.
+**M0 has landed, and so has M1's Datadog ingestion path. The rest below is planned.** A command
+stops being planned when its milestone's exit evidence exists — not when it looks correct.
+
+M0's evidence: the three-service stack boots, `alembic upgrade head` applies from empty,
+`/healthz` reports both dependencies, `smokejumper check-config` validates inside the container,
+and the five universal gates pass.
+
+The Datadog slice's evidence, measured against the booted stack rather than in-process:
+`POST /webhooks/datadog` rejects an absent or wrong token with 401 and persists nothing; a
+delivery of the committed real fixture returns 202, writes exactly one `events` row, and enqueues
+exactly one `agentevents` message; redelivery increments `dedupe_count` without a second row or a
+second enqueue; **25 concurrent deliveries of one alert produce exactly one row, `dedupe_count`
+25, and one enqueue**; a body with no `alert_id` is quarantined with a reason rather than dropped;
+and a `Recovered` transition closes the window so a later re-trigger is a new incident.
+`tests/integration/test_datadog_ingestion_stack.py` is that evidence, repeatable.
+
+Still planned, and still absent: the Grafana, Alertmanager, PagerDuty and generic normalizers, the
+queue *consumer*, the recorder, and every `smokejumper` subcommand beyond `check-config` —
+`fixtures replay`, `logs`, `replay`, and `eval` do not exist. Nothing consumes `agentevents` yet,
+so an accepted alert is durably queued and then waits.
 
 ### Universal gates
 
