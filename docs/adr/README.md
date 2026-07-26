@@ -124,11 +124,11 @@ golden fixtures are the tripwire.
 **[0016 · Local observability stack behind compose profiles](0016-local-observability-stack.md)**
 Adds a `lab` profile (Prometheus + Alertmanager, Loki + Promtail, a faultbox) so alert sources and
 tool backends are real locally — `log search` and `metric query` previously had no backend at all.
-Datadog and PagerDuty are SaaS with no local equivalent, so a `fixtures` replayer posts recorded
+Datadog and PagerDuty are SaaS with no local equivalent, so a replay command posts recorded
 payloads instead. Loki over ELK on footprint (~200MB vs 4GB+). The real payoff: an injected fault
 has known ground truth, making the lab the eval-corpus factory. **Amended 2026-07-26:** Grafana
-left the profile — Alertmanager already proves the live-webhook path, and the Grafana payload
-shape is covered by fixtures.
+and the `fixtures` profile both left — Alertmanager already proves the live-webhook path, and a
+compose service that only runs one CLI command is not a capability.
 
 **[0017 · One MCP domain: single gateway, single tier manifest](0017-mcp-domain-single-gateway.md)**
 Collapses `hub/` and the separate federated client in `knowledge/` into one `mcp/` package.
@@ -142,7 +142,7 @@ One validated settings object assembled from `base.yaml` → `<env>.yaml` → en
 selected by `SMOKEJUMPER_ENV`. Reserves "environment" for local/dev/prod and "compose profile"
 for service selection, because the two were about to share a word. Closes
 [0004](0004-hexagonal-ports.md)'s open risk: prod now refuses to boot with security-relevant stubs, refuses
-to run without a spend ceiling, and refuses the `lab`/`fixtures` profiles.
+to run without a spend ceiling, and refuses the `lab` profile.
 
 **[0019 · OpenTelemetry seam; Arize Phoenix as default backend](0019-observability-otel-phoenix.md)**
 Instrument once with OTel/OpenInference inside the model port and MCP gateway, so the backend

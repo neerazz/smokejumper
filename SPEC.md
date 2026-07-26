@@ -8,10 +8,10 @@
 > **Status: design complete; implementation not started. Reviewed 2026-07-10; architecture
 > updated 2026-07-25; scope subtracted 2026-07-26.** The 2026-07-25 pass added the local
 > incident lab (§2c), per-environment configuration (§2d), one MCP domain (§5.5), OTel/Phoenix,
-> and the prompt registry — decisions 11–15. The 2026-07-26 subtraction pass removed four layers
-> v1 does not need: the agentgateway proxy, the knowledge-graph tables, local Grafana, and the
-> Distiller (decision 17). Every significant decision is recorded with its alternatives and
-> accepted trade-offs in [docs/adr/](docs/adr/README.md).
+> and the prompt registry — decisions 11–15. The 2026-07-26 subtraction pass removed five layers
+> v1 does not need: the agentgateway proxy, the knowledge-graph tables, local Grafana, the
+> `fixtures` compose service, and the Distiller (decision 17). Every significant decision is
+> recorded with its alternatives and accepted trade-offs in [docs/adr/](docs/adr/README.md).
 
 ## 0. Documentation contract
 
@@ -51,8 +51,8 @@ updating exactly one ticket per incident fingerprint.
 
 **Non-goals for v1** (explicitly deferred): multi-tenancy, real auth (stubs only), Temporal
 durability (LangGraph checkpointing only), auto-applied remediations (privileged tier exists
-but ships with zero privileged tools enabled), Distiller automation (manual CLI run),
-horizontal scaling, UI beyond Slack.
+but ships with zero privileged tools enabled), the Distiller (deferred entirely — there is no v1
+`distill` command, §5.9), knowledge-graph retrieval (§5.4), horizontal scaling, UI beyond Slack.
 
 ## 2. Tech stack (locked)
 
@@ -96,7 +96,7 @@ lanes + adversarial verification (13/13 claims verified at primary sources).
 
 > **Implementation status:** the commands and service names in §§2c–2e are the locked target
 > interface, not a claim that the files already exist. They become runnable at M0 (core), M1
-> (`lab`/`fixtures`), and M6 (`obs`) respectively.
+> (`lab`), and M6 (`obs`) respectively.
 
 v1 must be verifiable on a laptop, so the alert sources and tool backends the system talks to
 in production need runnable local equivalents. **Not all of them can have one:** Datadog and
@@ -111,7 +111,6 @@ need tested anyway.
 | Alert source | prometheus + alertmanager | `lab` | Alertmanager sends no HMAC ⇒ network allowlist (§5.1) |
 | Log backend | loki + promtail | `lab` | **chosen over ELK**: ~200MB vs 4GB+ heap |
 | Fault injection | faultbox | `lab` | sample app that leaks / 500s / stalls on command |
-| SaaS stand-in | replayer | `fixtures` | POSTs recorded Datadog/PagerDuty/Grafana payloads at the Receiver |
 
 These services fill **two distinct roles**, and the distinction is load-bearing:
 
@@ -123,14 +122,20 @@ These services fill **two distinct roles**, and the distinction is load-bearing:
 **No local Grafana.** Alertmanager already fires a real HTTP webhook at the Receiver, so a
 second local alert source buys no coverage the first does not already provide; the Grafana
 webhook *shape* is what the normalizer must get right, and that is tested by golden fixtures and
-the `fixtures` replayer like the two SaaS sources. Loki stays, because `log search` needs a real
-backend and nothing else in the profile provides one.
+by `smokejumper fixtures replay`, like the two SaaS sources. Loki stays, because `log search`
+needs a real backend and nothing else in the profile provides one.
+
+**No replayer service.** Recorded Datadog/PagerDuty/Grafana payloads are POSTed by
+`smokejumper fixtures replay`, run from the app container. A compose service whose only job is to
+run that one command on `up` is boilerplate: it added a service and a whole profile without adding
+a capability. The corpus under `fixtures/webhooks/` is unaffected — only the compose service is
+gone.
 
 Compose profiles keep the default `docker compose up` at three services; the incident lab stays
 out of it.
 
 These services are **local only**. The same tools point at dev/prod backends via environment
-config (§2d), and the `lab`/`fixtures` profiles are refused outside `SMOKEJUMPER_ENV=local`.
+config (§2d), and the `lab` profile is refused outside `SMOKEJUMPER_ENV=local`.
 
 **Why this is more than dev convenience:** a faultbox-injected incident has *known ground
 truth*, so a run's Conclusion can be scored automatically rather than eyeballed. The lab is
@@ -142,7 +147,7 @@ audit record; this concerns *the systems Smokejumper observes*.
 
 **Naming discipline first**, because two different things want the word "profile":
 
-- **Compose profiles** (`lab`, `fixtures` — §2c) select which *services start*.
+- **Compose profiles** (`lab` — §2c, `obs` — §2e) select which *services start*.
 - **Environments** (`local`, `dev`, `prod`) select which *values the app uses*.
 
 They are orthogonal and combine freely: `SMOKEJUMPER_ENV=local docker compose --profile lab up`
@@ -173,7 +178,7 @@ injected by the platform's secret manager. `config/` stays diffable and safe to 
 | Postgres / Redis | compose service names | managed instance | managed instance |
 | `metric query` backend | `http://prometheus:9090` (`lab`) | dev Prometheus | prod Prometheus |
 | `log search` backend | `http://loki:3100` (`lab`) | dev Loki | prod Loki |
-| Alert sources | `lab` + `fixtures` replay | real webhooks, dev secrets | real webhooks, prod secrets |
+| Alert sources | `lab` + fixture replay | real webhooks, dev secrets | real webhooks, prod secrets |
 | Model roles (§2) | cheap or local model | cheap model | full-strength |
 | Spend ceiling | tiny | tiny | real, with kill switch |
 | Ticketing (§5.6) | dry-run / fixture | test Linear team | prod Linear team |
@@ -185,8 +190,8 @@ injected by the platform's secret manager. `config/` stays diffable and safe to 
 - **`prod` refuses to start if any security-relevant port is a stub** (`AllowAll`, `NoopGovernance`,
   `FixturePlatform`). ADR-0004 accepted the risk that "stubs normalize insecurity if deployed
   carelessly" and mitigated it with a loud log line — a log line is not a control. Fail closed.
-- **`lab` and `fixtures` compose profiles are refused outside `local`.** The faultbox exists
-  to break things; it must not be reachable from a real environment.
+- **The `lab` compose profile is refused outside `local`.** The faultbox exists to break things;
+  it must not be reachable from a real environment.
 - **`prod` requires an explicit spend ceiling.** Absent one, boot fails rather than defaulting
   to unlimited.
 
@@ -263,7 +268,7 @@ the same mistake ADR-0012 refused for the audit log.
 smokejumper/
 ├── pyproject.toml
 ├── docker-compose.yml          # default: postgres+pgvector, redis, app
-│                               # profiles: lab (§2c), fixtures (§2c)
+│                               # profiles: lab (§2c), obs (§2e)
 ├── docker-compose.override.yml  # auto-loaded local tweaks — git-ignored
 ├── docker-compose.dev.yml      # explicit overlay: -f base -f dev
 ├── .env.example                # local secret template (real .env is git-ignored)
@@ -307,7 +312,7 @@ smokejumper/
 │   └── CHANGELOG.md
 ├── recipes/*.yaml              # runbook recipes (procedural memory)
 ├── scripts/check_doc_contract.py # enforces SPEC-only normative documentation
-├── fixtures/webhooks/          # golden per-source payloads (§8) + replayer corpus (§2c)
+├── fixtures/webhooks/          # golden per-source payloads (§8) + replay corpus (§2c)
 ├── tests/                      # unit + contract + replay tests; doc-contract gate exists now
 └── evals/                      # recorded cases for the replay harness
 ```
@@ -498,10 +503,22 @@ advertising new tools. OTLP spans are read-side telemetry; JSONL remains authori
   `evals/*.json` cases and reports per-agent hit-rate vs recorded ground truth. Both read
   the JSONL sink via the `runs` index.
 
-### 5.9 Distiller (manual in v1)
-- `smokejumper distill <run_id|--since>`: closed cases → case embedding (①), proposed graph
-  edges (②), draft recipe (③). ① and ② auto-commit; ③ writes `recipes/drafts/` — a human
-  promotes drafts. One-way: Distiller writes knowledge, never reads chat.
+### 5.9 Distiller — post-v1 (decision 17)
+Turning closed cases into knowledge is deferred entirely; there is no v1 `smokejumper distill`.
+The design it would implement is recorded in ADR-0009 and remains one-way: recorder → knowledge,
+never reading chat, with case embeddings and graph edges committing automatically and draft
+recipes landing in `recipes/drafts/` for a human to promote.
+
+Every seam it needs already exists, so adding it later is a new module rather than a redesign:
+the `runs` index locates a closed run's events (§5.8), B9 `DistillationCandidate` stays reserved
+in the frozen contract (§4) alongside B7, and `MemoryPort` (§5.10) owns the write path.
+
+**Consequence, stated plainly:** with no Distiller, nothing in v1 writes `episodes`. Procedural
+memory still works — recipes are hand-authored YAML — but episodic retrieval returns whatever was
+seeded, and in a fresh deployment that is nothing. The `episodes` table, its embedding call, and
+its pgvector index exist in v1 so the schema and the retrieval path are proven and eval cases can
+seed them; they are not a self-populating memory yet. §8's eval corpus comes from faultbox ground
+truth, which is why no v1 acceptance criterion depends on distillation.
 
 ### 5.10 Ports (hexagonal seam)
 
@@ -628,8 +645,9 @@ Added 2026-07-25 (architecture update):
 11. **Local observability stack in compose profiles** (§2c, ADR-0016) — Prometheus+Alertmanager,
     Grafana, Loki+Promtail and a faultbox run under a `lab` profile so alert sources and tool
     backends are real locally; Datadog/PagerDuty are SaaS and get a `fixtures` replayer
-    instead. Loki over ELK on footprint. *Amended by 17: Grafana left the `lab` profile, and
-    the default stack stayed at three services.*
+    instead. Loki over ELK on footprint. *Amended by 17: Grafana left the `lab` profile, the
+    `fixtures` profile and its replayer service went away, and the default stack stayed at three
+    services.*
 12. **One application MCP domain** (§5.5, ADR-0017) — `hub/` and the `knowledge/` federated
     client collapse into `src/smokejumper/mcp/`: one client, one governance seam, one central
     tier manifest, our servers in-process, federated servers as descriptors. This closes a path
@@ -662,8 +680,8 @@ Added 2026-07-25 (architecture update):
 
 Amended 2026-07-26 (subtraction pass, approved by Neeraj):
 
-17. **Four layers removed from v1.** The design had accreted for months without a single
-    removal, and each of these cost more than it returned at v1 scale:
+17. **Layers removed from v1.** The design had accreted for months without a single removal, and
+    each of these cost more than it returned at v1 scale:
     - **agentgateway deferred** (supersedes 16, amends 12; ADR-0021 is now Deferred). Its commissioned
       security review returned "conditional accept; not safe as currently specified" with eight
       High findings; §5.5 already conceded that the app stays authoritative for every semantic
@@ -677,10 +695,16 @@ Amended 2026-07-26 (subtraction pass, approved by Neeraj):
       `MemoryPort`; `episodes` keeps `valid_at`/`recorded_at`, so bi-temporal replay survives.
     - **Grafana dropped from the `lab` profile** (amends 11; ADR-0016). Prometheus and
       Alertmanager fire webhooks at the Receiver directly; the Grafana payload shape is covered
-      by golden fixtures and the replayer. Loki stays — `log.search` needs a real backend.
-    - **Distiller deferred.** Nothing in v1 writes knowledge automatically. §8's eval corpus
-      comes from faultbox ground truth, not from distillation, so the Distiller was carrying no
-      v1 acceptance criterion.
+      by golden fixtures and `smokejumper fixtures replay`. Loki stays — `log.search` needs a
+      real backend.
+    - **The `fixtures` compose profile removed** (amends 11). Its only service was the app image
+      running `smokejumper fixtures replay`, which acceptance invokes directly anyway — a service
+      and a profile for zero capability. The corpus under `fixtures/webhooks/` stays; it is what
+      the golden per-source tests read.
+    - **Distiller deferred entirely** (§1, §5.9). There is no v1 `distill` command. §8's eval
+      corpus comes from faultbox ground truth, not from distillation, so it was carrying no v1
+      acceptance criterion. The cost is explicit in §5.9: nothing in v1 writes `episodes`, so
+      episodic retrieval returns only what was seeded.
     Kept deliberately: `prompt_ref` + `prompt_sha256` on every `llm_call` (decision 15). It is
     one hash per call and it is what makes deterministic replay — the product claim — checkable.
 

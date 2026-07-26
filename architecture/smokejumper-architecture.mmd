@@ -23,9 +23,9 @@ flowchart TB
   subgraph L1["  ALERT & CHAT SOURCES  "]
     direction LR
     AM["<b>Alertmanager</b><br/>webhook — local in <i>lab</i> profile"]
-    GRAF["<b>Grafana</b><br/>webhook — <i>fixtures</i> replay"]
-    DD["<b>Datadog</b><br/>webhook — SaaS, <i>fixtures</i> replay"]
-    PD["<b>PagerDuty</b><br/>events v2 — SaaS, <i>fixtures</i> replay"]
+    GRAF["<b>Grafana</b><br/>webhook — recorded-payload replay"]
+    DD["<b>Datadog</b><br/>webhook — SaaS, recorded-payload replay"]
+    PD["<b>PagerDuty</b><br/>events v2 — SaaS, recorded-payload replay"]
     GEN["<b>Splunk / generic</b><br/>JSON"]
     SLACKIN["<b>Slack</b><br/>@mention · buttons"]
     AM ~~~ GRAF ~~~ DD ~~~ PD ~~~ GEN ~~~ SLACKIN
