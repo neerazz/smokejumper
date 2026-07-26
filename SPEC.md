@@ -594,32 +594,59 @@ Postgres) · `approvals` (B5) · `tickets` (fingerprint ↔ TicketRef map, provi
 
 ## 8. Testing & acceptance
 
-- **Contract tests:** every B-model round-trips JSON; golden fixtures per source webhook.
-- **Component tests:** dedupe/coalesce truth table; fingerprint stability; idempotent actions
-  (double-delivery ⇒ one ticket); approval expiry ⇒ deny; budget breach ⇒ inconclusive.
-- **Replay tests:** 5 recorded eval cases run deterministically in CI (mocked model).
-- **Lab end-to-end (`lab` profile, §2c):** faultbox injects a known fault → Prometheus/Grafana
-  alert fires → full run → Conclusion compared against the *injected* ground truth. This is
-  how eval cases get generated instead of hand-authored, and it is the only test in the suite
-  where "was the conclusion correct" is mechanically answerable. Not CI-gated (needs the lab);
-  run before a release.
-- **Acceptance (v1 exit):** docker-compose up + seeded fixtures; firing the named acceptance
-  trio—Grafana, Datadog, and PagerDuty—yields: 1 ticket with correct create-vs-update behavior, Slack receipt, full
-  recorder trace, `smokejumper eval` ≥ 4/5 cases matching expected Conclusion status.
+Kinds of test, in ascending cost. Every kind except the lab end-to-end runs in CI with no external
+account and no live model.
+
+- **Contract tests** — every B-model round-trips JSON, invalid enums and out-of-range values are
+  rejected, and `schema_version` is required. Golden payloads per webhook source in
+  `fixtures/webhooks/`.
+- **Component tests** — fingerprint stability under entity reordering; the dedupe and coalesce
+  truth table including the 20-vs-21 fingerprint storm boundary; double delivery ⇒ one ticket;
+  approval expiry ⇒ deny; budget breach ⇒ `inconclusive` B6 carrying partial findings.
+- **Service-backed tests** — marked `integration`, they skip loudly unless Postgres and Redis are
+  reachable. `SMOKEJUMPER_TEST_STACK=1` turns that skip into a failure, which is how CI runs them
+  against service containers on loopback. A test that passes because its dependency was absent is
+  worse than no test.
+- **Replay tests** — five recorded `evals/*.json` cases replay deterministically from the JSONL
+  audit record using recorded model and tool responses. CI gate: at least 4 of 5 match the
+  expected B6 status and cite the expected evidence refs. The comparison is exact; there is no
+  LLM-as-judge.
+- **Lab end-to-end** — the faultbox injects a known fault, a Prometheus rule fires, Alertmanager
+  posts to `/webhooks/alertmanager`, and the resulting Conclusion is scored against the
+  *injected* ground truth. This is the only test where "was the conclusion correct" is
+  mechanically answerable, so it produces eval cases instead of them being hand-authored. Not
+  CI-gated — it needs the `lab` profile; run it before a release.
+
+**Acceptance (v1 exit).** With the default stack plus the `lab` and `obs` profiles up, all three
+acceptance sources — Grafana, Datadog, PagerDuty — are replayed from recorded payloads, each one
+twice. Per source that must produce one ticket created on first delivery and updated rather than
+duplicated on the second, one Slack receipt, and a complete recorder trace; `smokejumper eval`
+must then report at least 4 of 5 cases matching. All three are replayed rather than fired live
+because none of them runs as a `lab` service: Datadog and PagerDuty are SaaS with no local
+equivalent, and Grafana is an alert *payload format* Smokejumper must normalize rather than a
+system it operates. Replay exercises the normalizer and its signature verification identically.
+
+§12 owns the exact command sequence, the evidence files it must leave behind, and the rollback
+path.
 
 ## 9. Milestones (each independently verifiable)
 
-| # | Deliverable | Exit check |
-|---|---|---|
-| M0 | Repo skeleton, contracts, CI, four-service default Compose stack, `config/` layering (§2d), stub ports, pinned agentgateway | `pytest` green; app→agentgateway proxy smoke passes; prod fails closed on security stubs/direct egress |
-| M1 | Receiver + queue + recorder core + `lab`/`fixtures` profiles (§2c) | golden webhooks → normalized events in DB, storm test passes; a real Grafana/Alertmanager alert reaches the queue |
-| M2 | Supervisor + ONE specialist + Actions (ticket+receipt) | `evals/case-01.json` traverses queue → Metrics Analyst → agentgateway virtual LLM → B6 → fixture ticket/receipt exactly once; credentialed Linear/Slack is a release smoke test |
-| M3 | Knowledge façade (vectors+graph+recipes) wired into retrieve | embedding call uses agentgateway virtual model; bundle appears in trace; precedent case cited |
-| M4 | Parallel specialists + budgets + Governor | 3 agents in parallel; budget-breach test passes |
-| M5 | FastMCP servers + agentgateway virtual MCP + tiers/approval | generated proxy config is fresh; CEL filter + executor independently deny; demo noop approval and federated descriptor pass |
-| M6 | Replay/eval harness + Distiller CLI + `obs` profile (§2e) + docs | acceptance suite green; the canonical quickstart in this specification works; a run's spans land in Phoenix |
+Seven milestones, strict M0→M6 order, each landing as one reviewed PR. **This list is an index;
+§12 is normative** for deliverables, exit criteria, commands, and evidence. A milestone is
+complete when §12's exit evidence for it exists.
 
-Build order is strict; each milestone lands as a reviewed PR.
+- **M0** — the stack boots. Package and CI, boundary contracts, layered configuration, ports and
+  their environment gates, the three-service Compose stack, first migration, `/healthz`, and a
+  `prod` that refuses to start unsafe.
+- **M1** — an alert becomes a recorded, queued event. Flight Recorder, Receiver and normalizers,
+  fingerprint/dedupe/storm, Redis Streams, and the `lab` + `fixtures` profiles.
+- **M2** — one alert reaches one ticket. `ModelProvider` against the chosen provider, supervisor
+  graph, one specialist, Slack receipt, Linear create-vs-update.
+- **M3** — retrieval is real. `episodes` similarity plus recipes behind `MemoryPort`, cited in B6.
+- **M4** — investigation is parallel and bounded. Three specialists, the spend ledger, Governor.
+- **M5** — tools are governed. MCP manifest, in-process FastMCP targets, two independent tier
+  checks, and the approval round-trip.
+- **M6** — the result is reproducible. Replay, eval, `obs` traces, and release proof.
 
 ## 10. Decisions log (resolved 2026-07-10, by Neeraj)
 
@@ -827,46 +854,129 @@ not have to invent them:
 
 ## 12. Executable implementation plan
 
-Implementation is seven milestone PRs in the strict M0→M6 order. Every work packet uses the
-same loop: **write one behavioral test → run it and observe the expected failure → implement
-the minimum → run the focused test → run milestone gates → commit**. Source-bound framework
-calls are checked against current official documentation before code is written; URLs and
-non-obvious lifecycle constraints go in the implementing module's docstring or ADR reference.
+**This section is normative for build order, deliverables, exit criteria, commands, and
+evidence**; §9 is an index into it. Implementation is seven milestone PRs in strict M0→M6 order.
+Every work packet uses the same loop: **write one behavioral test → run it and observe the
+expected failure → implement the minimum → run the focused test → run the universal gates →
+commit**. Framework calls are checked against current official documentation before code is
+written; the URL and any non-obvious lifecycle constraint go in the implementing module's
+docstring.
 
-### Universal gates and evidence
+**Each milestone consumes only artifacts an earlier milestone produced.** That property is what
+makes the order buildable, and it is why the MCP manifest, the FastMCP targets, and tier
+enforcement all arrive at M5 rather than being asserted earlier against files that do not exist.
 
-Run after every packet that changes Python; all must exit 0 before its commit:
+**Everything below is planned.** At this revision the repository contains
+`src/smokejumper/__init__.py`, `scripts/check_doc_contract.py`, `tests/`, and `pyproject.toml`
+with `uv.lock`; the five universal gates run and pass, and the declared `smokejumper` console
+script does not yet import because M0.1 has not landed. A command stops being planned when its
+milestone's exit evidence exists — not when it looks correct.
+
+### Universal gates
+
+Five gates. All must exit 0 before any commit:
 
 ```bash
-uv run pytest -q
+uv run pytest
 uv run ruff check .
 uv run ruff format --check .
 uv run pyright
-git diff --check
+python3 scripts/check_doc_contract.py
 ```
 
-Compose-changing packets additionally run `docker compose config`; profile packets run the
-specific profile health check. Each milestone receipt records: commit SHA, changed paths,
-focused RED/GREEN test, full gate output, runtime probe, and any disabled external adapter.
+This is the entire enforced set and CI runs exactly these, so the list cannot drift from what is
+actually checked. `pytest` also invokes the documentation-contract checker, which is why a
+docs-only change still runs the whole set. Compose-changing packets additionally run
+`docker compose config`.
+
+### Where a command runs
+
+Decided once, because getting it wrong produces commands that cannot work:
+
+- **On the host:** anything that only touches the repository — `uv run …`, `git`, the five
+  gates, and `docker compose` itself.
+- **Inside the deployment:** anything that must resolve `postgres`, `redis`, or `app`. Compose
+  service names do not exist on the host, so a host-run `uv run smokejumper …` cannot reach the
+  stack. Use `docker compose exec -T app …`; `-T` disables TTY allocation so the command works
+  non-interactively and its stdout can be captured.
+- **CI is the exception:** Postgres and Redis are GitHub Actions service containers published on
+  loopback, so host-run `pytest` reaches them. CI sets `SMOKEJUMPER_TEST_STACK=1`, which turns
+  the `integration` and `e2e` skips into hard requirements (§8).
+
+A command that runs inside the deployment needs its data there. The app image carries `config/`,
+and each later milestone adds the read-only data it creates — `prompts/`, `registry/`,
+`recipes/`, `fixtures/`, `evals/` — because replay, fixture replay, and eval all run inside.
+
+### Exit evidence
+
+Each milestone writes its evidence to `.artifacts/verification/<milestone>/<git-sha>/`, where
+`<milestone>` is `m0` through `m6`. Every milestone captures the gate output there, and from M0
+onward `alembic current`, because rollback has to know which schema revision a milestone left
+behind:
+
+```bash
+EVIDENCE=".artifacts/verification/m0/$(git rev-parse --short HEAD)"   # m0 … m6
+mkdir -p "$EVIDENCE"
+{ uv run pytest && uv run ruff check . && uv run ruff format --check . \
+  && uv run pyright && python3 scripts/check_doc_contract.py; } 2>&1 | tee "$EVIDENCE/gates.txt"
+```
+
+`.artifacts/` is git-ignored and the M0.1 CI workflow uploads it as a build artifact, so evidence
+outlives the machine without entering the repository. Each milestone below names the files it adds
+beyond `gates.txt` and `alembic-head.txt`.
+
+### Teardown and rollback
+
+`docker compose down -v` **deletes the Postgres and Redis volumes.** It is teardown, not cleanup,
+and it is never run against the default project name. CI wants a disposable stack, so it opts in
+explicitly with its own project name on both ends of the job:
+
+```bash
+PROJECT="smokejumper-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+docker compose -p "$PROJECT" up -d --build
+docker compose -p "$PROJECT" down -v
+```
+
+Rolling a milestone back preserves data. Migrations come down *before* the code that defines them
+goes away, because the older checkout does not contain the newer revision script:
+
+```bash
+PREVIOUS_HEAD="$(cat .artifacts/verification/m3/<sha>/alembic-head.txt)"   # the target milestone's
+docker compose exec -T app alembic downgrade "$PREVIOUS_HEAD"
+docker compose down                       # containers removed, named volumes kept
+git checkout v1-m3
+docker compose up -d --build
+docker compose exec -T app alembic current               # expect $PREVIOUS_HEAD
+curl --fail --silent "http://127.0.0.1:${APP_HOST_PORT:-8000}/healthz"
+```
+
+Each milestone is tagged `v1-m<N>` on merge, so the rollback target is a real ref instead of a
+commit someone has to go find mid-incident.
 
 ### M0—foundation, contracts, configuration, and core runtime
 
-**M0.1 · Package and CI skeleton**
-- Create: `pyproject.toml`, `uv.lock`, `Dockerfile`, `.dockerignore`, `.gitignore`,
-  `src/smokejumper/__init__.py`, `src/smokejumper/cli.py`, `tests/test_package.py`,
-  `.github/workflows/ci.yml`; wire the existing `scripts/check_doc_contract.py` and
-  `tests/test_doc_contract.py` into CI.
-- RED: package import and `smokejumper --help` tests fail because the package does not exist.
-- GREEN: src-layout package installs through uv; CI runs pytest, ruff, pyright, and the
-  documentation-contract gate on Python 3.12. Commit: `chore: scaffold Python package and CI`.
+M0 proves four things and nothing else: the three-service stack boots, its schema applies,
+`/healthz` answers, and `prod` refuses to start when it is unsafe. There is no proxy, no generated
+configuration, and no MCP at M0.
+
+**M0.1 · CLI entry point and CI**
+- Create: `src/smokejumper/cli.py` (Typer), `Dockerfile`, `.dockerignore`,
+  `tests/test_package.py`, `.github/workflows/ci.yml`. `pyproject.toml`, `uv.lock`, `.gitignore`,
+  `scripts/check_doc_contract.py`, and `tests/test_doc_contract.py` already exist; they are wired
+  into CI, not created.
+- RED: `smokejumper --help` fails to import `smokejumper.cli`, and no workflow runs the gates.
+- GREEN: the declared console script resolves. CI runs the five universal gates on Python 3.12
+  with Postgres+pgvector and Redis service containers on loopback and `SMOKEJUMPER_TEST_STACK=1`,
+  then uploads `.artifacts/`. Commit: `build: add CLI entry point and CI workflow`.
 
 **M0.2 · One validated settings object**
-- Create: `src/smokejumper/config.py`, `config/base.yaml`, `config/local.yaml`,
-  `config/dev.yaml`, `config/prod.yaml`, `.env.example`, `tests/test_config.py`.
-- RED: precedence tests cover defaults < base < env file < env vars < CLI; malformed config,
-  prod stubs, prod missing ceiling, and non-local lab profiles all fail boot.
-- GREEN: implement pydantic-settings custom sources and one startup validator. Commit:
-  `feat: add layered fail-closed configuration`.
+- Create: `src/smokejumper/config.py`, `config/{base,local,dev,prod}.yaml`, `.env.example`, the
+  `smokejumper check-config` command, `tests/test_config.py`.
+- RED: precedence tests cover defaults < `base.yaml` < `<env>.yaml` < env vars < CLI flags.
+  Malformed config, a stubbed security-relevant port under `prod`, a missing `prod` spend ceiling,
+  and a `lab` or `fixtures` profile outside `local` must each fail boot.
+- GREEN: pydantic-settings custom sources, one startup validator, and a `check-config` command
+  that exits non-zero on any of those. Commit: `feat: add layered fail-closed configuration`.
 
 **M0.3 · Boundary contracts**
 - Create focused modules under `src/smokejumper/contracts/` for inbound, events, knowledge,
@@ -880,154 +990,214 @@ focused RED/GREEN test, full gate output, runtime probe, and any disabled extern
 - Create: `src/smokejumper/ports/{auth,governance,tenancy,model,platform,ticketing,memory,channel}.py`,
   `src/smokejumper/ports/stubs.py`, `tests/ports/test_stubs.py`.
 - RED: local accepts loud stubs; dev warns; prod rejects every security-relevant stub.
-- GREEN: protocols/ABCs plus smallest stubs only. Commit: `feat: add environment-gated ports`.
+- GREEN: protocols plus the smallest stubs that satisfy them. `ports/model.py` is declared here
+  and implemented at M2. Commit: `feat: add environment-gated ports`.
 
-**M0.5 · App, persistence, agentgateway, and default Compose stack**
+**M0.5 · App, persistence, and the three-service Compose stack**
 - Create: `src/smokejumper/app.py`, `src/smokejumper/persistence/database.py`, `alembic.ini`,
-  `migrations/`, `docker-compose.yml`, `compose/agentgateway/config.generated.yaml`,
-  `src/smokejumper/mcp/generate_proxy.py`, `tests/test_health.py`,
-  `tests/integration/test_agentgateway_proxy.py`.
-- RED: `/healthz`, migrations, generated-config freshness, app→proxy HTTP, MCP initialize/list,
-  CEL tool filtering, and direct-egress prohibition fail before services/policy exist.
-- GREEN: SQLAlchemy 2 async + psycopg 3 + Alembic boot app + Postgres 16/pgvector + Redis +
-  pinned agentgateway v1.3.1. Config is read-only, `config.database`/prompt capture are absent,
-  LLM/MCP listeners stay internal, and readiness/metrics are healthy. Commit:
-  `feat: boot core stack through agentgateway`.
+  `migrations/` with the first revision, `docker-compose.yml`, `tests/test_health.py`,
+  `tests/integration/test_stack.py`.
+- RED: `GET /healthz` 404s, no schema exists, and `SMOKEJUMPER_ENV=prod` boots happily.
+- GREEN: SQLAlchemy 2 async + psycopg 3 + Alembic against Postgres 16 with pgvector, plus Redis.
+  Default `docker compose up` starts exactly three services — `postgres`, `redis`, `app` — and
+  `/healthz` returns 200 only when the schema is at head and both backing services answer.
+  Commit: `feat: boot the three-service core stack`.
 
-**M0 exit evidence**
+**M0 exit evidence** — `gates.txt`, `compose-config.txt`, `healthz.json`, `alembic-head.txt`,
+`prod-fail-closed.txt`:
+
 ```bash
-uv run pytest -q
-uv run ruff check .
-uv run ruff format --check .
-uv run pyright
-docker compose config
+docker compose config | tee "$EVIDENCE/compose-config.txt"
 docker compose up -d --build
-curl --fail http://localhost:${APP_HOST_PORT:-8000}/healthz
-docker compose exec app python -c "import urllib.request; urllib.request.urlopen('http://agentgateway:15021/').read()"
-uv run pytest tests/integration/test_agentgateway_proxy.py -q
+curl --fail --silent "http://127.0.0.1:${APP_HOST_PORT:-8000}/healthz" | tee "$EVIDENCE/healthz.json"
+docker compose exec -T app alembic current | tee "$EVIDENCE/alembic-head.txt"
 docker compose run --rm \
   -e SMOKEJUMPER_ENV=prod \
   -e SMOKEJUMPER__BUDGET__MAX_USD_PER_RUN= \
-  app smokejumper check-config  # expected non-zero: stubs + ceiling
-docker compose down -v
+  app smokejumper check-config 2>&1 | tee "$EVIDENCE/prod-fail-closed.txt"   # must exit non-zero
+docker compose down
 ```
 
 ### M1—recorder, receiver, queue, and local incident lab
 
-1. **Recorder first:** create `recorder/writer.py`, `recorder/broadcast.py`, runs-index
-   migration, and tests for append-only JSONL, monotonic per-run `seq`, process-unique files,
-   byte offsets, failure counter, and `logs --follow`.
-2. **Inbound persistence:** add events/quarantine migration and repository; test 401+audit for
-   unverifiable payloads and 202+quarantine for unparseable payloads.
-3. **Normalizers:** implement generic, Grafana, Datadog, PagerDuty, and Alertmanager adapters
-   from `fixtures/webhooks/`; each source gets golden valid/invalid/signature/severity tests.
-4. **Fingerprint/dedupe/storm:** test canonical entity ordering, stable hash, 15-minute dedupe,
-   20-vs-21 fingerprint boundary, five-minute reset, and one `kind=storm` enqueue.
-5. **Redis Streams:** create producer/consumer group, at-least-once reclaim, event-id
-   idempotency, and max-in-flight=3 tests.
-6. **Lab + fixtures profiles:** create `compose/{prometheus,alertmanager,grafana,loki,faultbox}/`,
-   replayer, provisioning, and health probes. A real Alertmanager/Grafana alert must reach the
-   Redis stream; Datadog/PagerDuty fixtures require no SaaS account.
+1. **Recorder first:** `recorder/writer.py`, `recorder/broadcast.py`, the `runs`-index migration,
+   `smokejumper logs --follow`, and `smokejumper runs latest --format id`. Tests: append-only
+   JSONL, monotonic per-run `seq`, process-unique files, byte offsets, failure counter.
+   `runs latest --format id` prints one run id and nothing else, because the acceptance set
+   consumes its stdout.
+2. **Inbound persistence:** events and quarantine migration plus repository; 401 with an audit
+   entry for an unverifiable payload, 202 with a quarantine row for an unparseable one.
+3. **Normalizers:** generic, Grafana, Datadog, PagerDuty, and Alertmanager adapters built from
+   `fixtures/webhooks/`; per source a golden valid payload, an invalid one, a signature case, and
+   a severity-mapping case. Grafana is a payload format here, not a service Smokejumper runs.
+4. **Fingerprint, dedupe, storm:** canonical entity ordering, stable hash, the 15-minute window,
+   the 20-vs-21 fingerprint boundary, the five-minute reset, and exactly one `kind=storm` enqueue.
+5. **Redis Streams:** producer, the `intelligence` consumer group, at-least-once reclaim,
+   `event.id` idempotency, max in-flight 3.
+6. **`lab` and `fixtures` profiles:** `compose/{prometheus,alertmanager,loki,promtail,faultbox}/`
+   and their provisioning. Prometheus rules fire at Alertmanager, which posts directly to
+   `/webhooks/alertmanager`; no dashboard sits on the alert path. The `fixtures` profile's
+   `replayer` is the app image running `smokejumper fixtures replay`, not a second
+   implementation. Fix the faultbox's fault-injection route in this packet and record it — no
+   later milestone may invent one.
 
-Commit each numbered packet separately. M1 exits only when the focused storm test and the real
-lab alert receipt are both retained as evidence.
+Commit each numbered packet separately.
+
+**M1 exit evidence** — `gates.txt`, `alembic-head.txt`, `storm-test.txt` (the focused storm test
+output) and `alertmanager-to-queue.txt`: `docker compose exec -T redis redis-cli XLEN agentevents`
+before and after a faultbox-triggered Alertmanager delivery, plus the AuditEvent recorded for that
+event. M1 exits only when both are retained.
 
 ### M2—one complete intelligence-to-action path
 
-1. **Prompt + registry seed:** create immutable `prompts/supervisor/{plan,synthesize}/v1.md`,
+1. **Prompt and registry seed:** immutable `prompts/supervisor/{plan,synthesize}/v1.md`,
    `prompts/agents/metrics-analyst/v1.md`, `prompts/CHANGELOG.md`, and
-   `registry/agents/metrics-analyst.yaml`; validate prompt refs and hashes at boot.
-2. **ModelProvider:** implement the gateway client only in `ports/model.py`; it calls
-   `smokejumper-worker` / `smokejumper-synthesis` on agentgateway's internal listener with the
-   gateway client key. Record model, prompt ref/hash, response, usage, latency, and Decimal cost.
-   Contract tests prove no direct provider URL/key reaches the app; unit tests use recorded responses.
-3. **Single-specialist graph:** implement intake→retrieve(empty bundle)→plan→dispatch one
-   Metrics Analyst→aggregate→synthesize B6 with Postgres checkpointing and restart test.
-4. **Slack adapter:** implement async Bolt Socket Mode mention listener, thread receipts, and
-   button callback plumbing behind `ChannelAdapter`; contract tests use fake Slack clients.
-5. **Linear + Actions:** implement provider-neutral TicketingPort conformance tests, direct
-   GraphQL adapter, fingerprint lookup, create-vs-update, and `(fingerprint, run_id)`
-   idempotency. Always inspect GraphQL `errors` even on HTTP 200.
-6. **Golden end-to-end:** one fixture alert produces one recorded run, one B6 Conclusion, one
-   Linear issue, and one Slack receipt; replaying the delivery updates rather than duplicates.
+   `registry/agents/metrics-analyst.yaml`. Boot resolves every `prompt_ref` and computes its
+   `prompt_sha256`, failing on a dangling reference.
+2. **`ModelProvider`:** the provider SDK is imported in `ports/model.py` and nowhere else, and a
+   test asserts that. Every call records `prompt_ref`, `prompt_sha256`, model, `request_sha256`,
+   the response, usage, latency, and a `Decimal` cost into B8 — the recorded response is M6's
+   replay fixture, so this is not optional telemetry. Unit tests run against recorded responses;
+   CI makes no live provider call. This packet adds the provider SDK dependency.
+3. **Single-specialist graph:** intake → retrieve (empty bundle) → plan → dispatch one Metrics
+   Analyst → aggregate → synthesize B6, on the Postgres checkpointer, with a restart test proving
+   a suspended run survives process death.
+4. **Slack adapter:** async Bolt Socket Mode mention listener, thread receipts, and button
+   callback plumbing behind `ChannelAdapter`; contract tests use a fake Slack client.
+5. **Linear and Actions:** the provider-neutral `TicketingPort` conformance suite, the direct
+   GraphQL adapter, fingerprint lookup, create-vs-update, and `(fingerprint, run_id)` idempotency.
+   GraphQL `errors` are inspected even on HTTP 200.
+6. **Golden end-to-end:** one fixture alert yields one recorded run, one B6, one ticket, and one
+   Slack receipt; redelivering the same payload updates instead of duplicating.
 
-M2 cannot claim live completion until the three owner inputs in §11.3 exist. All earlier
-packets remain buildable with fakes.
+The three owner inputs in §11.3 — provider credential, Slack app, Linear key — become blocking
+here. Every packet is buildable against fakes; only the live smoke needs them.
 
-### M3—local knowledge and GraphRAG retrieval
+**M2 exit evidence** — `gates.txt`, `alembic-head.txt`, `golden-run.jsonl` (the complete recorded
+run) and `ticket-idempotency.txt` (the two recorded `action` events showing one create then one
+update for the same fingerprint).
 
-1. Confirm §11.3's embedding model/dimension, route `ModelProvider.embed` through the
-   `smokejumper-embedding` virtual model, then add migrations for `episodes`, `kg_nodes`, and
-   `kg_edges` with that pgvector dimension and bi-temporal constraints.
-2. Implement `MemoryPort` Postgres adapter: episode similarity, ≤2-hop graph expansion, and
-   deterministic invalidation without deleting historical belief.
-3. Implement recipe loading/validation from `recipes/*.yaml` and trigger-tag matching.
-4. Compose `retrieve()` under a token/item budget into B3 with source refs and scores; the
-   federated list is empty through a governed stub until M5—Knowledge never opens an MCP
-   connection itself.
-5. Re-run M2 golden case seeded with two episodes + one recipe; B6 must cite the returned
-   source refs and the recorder must contain the exact bundle.
+### M3—episode retrieval and recipes
+
+1. Confirm §11.3's embedding model and dimension, route `ModelProvider.embed` through it, then add
+   the `episodes` migration at that pgvector dimension with bi-temporal `valid_at` /
+   `recorded_at`. The dimension is immutable without a migration, so it is settled before this
+   packet rather than during it. **Graph tables are deferred past v1:** there is no
+   `kg_nodes`/`kg_edges` migration, and `KnowledgeBundle.graph_paths` is returned empty.
+2. `MemoryPort` Postgres adapter: episode similarity search, and invalidation that supersedes a
+   belief by recording a new row rather than deleting the old one — replay must still be able to
+   ask what was believed at time T.
+3. Recipe loading and validation from `recipes/*.yaml` with trigger-tag matching.
+4. Compose `retrieve()` under a token and item budget into B3 with source refs and scores. The
+   `federated` list stays empty until M5, returned by a stub inside `knowledge/`; `knowledge`
+   never opens an MCP connection of its own.
+5. Re-run the M2 golden case seeded with two episodes and one recipe: B6 must cite the returned
+   source refs, and the recorder must hold the exact bundle that was retrieved.
+
+**M3 exit evidence** — `gates.txt`, `alembic-head.txt`, `knowledge-bundle.json` (the recorded B3
+bundle) and the B6 that cites it.
 
 ### M4—parallel specialists, budgets, and Governor
 
-1. Add immutable prompts + registry entries for Log Analyst and Change Auditor; keep DB/Code/
-   Precedent agents present but disabled. Change Auditor receives only bounded `change.list`
-   through the local PlatformPort fixture/Git-history target. Validate tool allowlists and budgets.
-2. Dispatch three B11 Assignments concurrently and aggregate findings in registry-stable order;
-   prove parallelism with a barrier test, not wall-clock guessing.
-3. Add call-count middleware plus the hand-written token/USD ledger; breach must synthesize an
-   `inconclusive` B6 with partial findings.
-4. Implement provider circuit breaker, max in-flight, queue-depth storm brake, and tests at
-   every threshold boundary.
-5. Add APScheduler jobs for registry sync and approval expiry; scheduled investigations remain
-   recipe-driven and produce normal B2 events.
+1. Immutable prompts and registry entries for Log Analyst and Change Auditor; DB, Code, and
+   Precedent agents stay present with `enabled: false`. Change Auditor gets only bounded
+   `change.list` through the local `PlatformPort` fixture. Validate tool allowlists and budgets
+   against the registry schema.
+2. Dispatch three B11 Assignments concurrently and aggregate findings in registry-stable order.
+   Prove parallelism with a barrier, not a wall-clock comparison.
+3. Call-count middleware plus the hand-written token and USD ledger. A breach must synthesize an
+   `inconclusive` B6 carrying the partial findings — never a silent death.
+4. Provider circuit breaker, max in-flight, and the queue-depth storm brake, with a test at each
+   threshold boundary rather than only past it.
+5. Scheduler jobs (§5.7) for registry sync and approval expiry; scheduled investigations stay
+   recipe-driven and produce ordinary B2 events.
 
-### M5—FastMCP targets, agentgateway virtual MCP, and approval round-trip
+**M4 exit evidence** — `gates.txt`, `parallel-dispatch.txt` (the barrier test proving three
+concurrent assignments) and `budget-breach.txt` (the `inconclusive` B6 with partial findings).
 
-1. Create `mcp/manifest.yaml` schema/loader and deterministic proxy generator; boot/CI fails for
-   unknown tools, duplicate names, absent tiers, registry tools missing from the manifest, or
-   generated YAML drift.
-2. Mount bounded FastMCP Streamable HTTP targets for Prometheus metrics, Loki logs, knowledge,
-   `change.list`, Linear read, recipes, and fixture platform assets on the app-internal endpoint.
-3. Configure agentgateway virtual MCP to multiplex local and federated targets with prefixed names,
-   per-target auth/TLS, generated CEL discovery/call filters, timeouts, and redacted OTLP.
-4. Keep the app executor-tier check independent. Prove CEL-only and executor-only bypass attempts
-   each fail, and prove the app cannot reach remote MCP hosts directly.
-5. Add `demo_destructive_noop` only under test configuration; production privileged manifest
-   remains empty.
-6. Implement opaque approval-token mint/consume, 30-minute expiry, Slack buttons, LangGraph
-   interrupt/resume, restart durability, deny, expiry, replay, and double-click race tests.
+### M5—governed tools and the approval round-trip
 
-### M6—replay, eval, Distiller, traces, and release proof
+1. **Manifest:** `mcp/manifest.yaml` plus its loader. Boot and CI fail on an unknown tool, a
+   duplicate name, a missing tier, or a registry tool absent from the manifest. The manifest is
+   hand-maintained and is the only tool→tier registry; nothing generates a second policy file.
+2. **In-process targets:** bounded FastMCP servers for `metric.query` (Prometheus), `log.search`
+   (Loki), `knowledge.search`/`knowledge.expand`, `change.list` (the `PlatformPort` fixture),
+   Linear read, and recipe read. They run inside the app process, and the single client in
+   `mcp/gateway.py` is the only MCP client any package constructs.
+3. **Two independent checks:** FastMCP middleware `on_call_tool` denies by tier, and the
+   application executor re-checks the tier before dispatch. Prove each denies alone — a call that
+   slips past the middleware is still refused by the executor, and a call that bypasses the
+   executor is still refused by the middleware. Neither layer may be the only enforcement.
+4. **Federated descriptors:** `mcp/federated/loader.py` imports a remote toolset through the same
+   client, the same manifest, and the same executor check, with prefixed tool names and a
+   descriptor allowlist. A stub descriptor satisfies v1; a real endpoint is not an acceptance
+   prerequisite.
+5. **Privileged tier:** add `demo_destructive_noop` under test configuration only. The production
+   privileged manifest stays empty, which is the promise in §1.
+6. **Approvals:** opaque token mint and single-use consume, 30-minute expiry, Slack buttons,
+   LangGraph interrupt and resume, restart durability, deny, expiry auto-deny, replay, and a
+   double-click race test proving exactly one consumption.
 
-1. Implement deterministic `replay <run_id>` from JSONL + runs index with recorded model/tool
-   outputs, then live eval mode as an explicit opt-in.
-2. Add five `evals/*.json` cases and `smokejumper eval`; CI requires deterministic ≥4/5 and
-   reports per-agent hit rate without calling a live model.
-3. Implement manual Distiller CLI: episode and graph candidates commit transactionally; recipe
-   candidates land only in `recipes/drafts/` for human promotion.
-4. Add application semantic spans at ModelProvider/MCP executor and propagate context through
-   agentgateway's LLM/MCP network spans; configure Phoenix under `obs`. Verify `config.database`
-   and raw body capture remain disabled and JSONL stays complete with Phoenix stopped.
-5. Run the faultbox release case from injected fault through alert, parallel investigation,
-   grounded B6, one Linear ticket, Slack receipt, JSONL replay, and matching ground truth.
-6. Replace any remaining “planned” labels in this specification only after their commands work;
-   README stays a landing page and links here rather than copying the quickstart.
+**M5 exit evidence** — `gates.txt`, `tier-denials.txt` (both single-layer bypass attempts failing)
+and `approval-round-trip.txt` (mint, approve, consume, and the second attempt being refused).
+
+### M6—replay, eval, traces, and release proof
+
+The Distiller is deferred past v1 and is not an M6 deliverable.
+
+1. Deterministic `smokejumper replay <run_id>` from the JSONL sink plus the runs index, using the
+   recorded model and tool outputs. Live re-execution is a separate explicit opt-in, never the
+   default.
+2. Five `evals/*.json` cases and `smokejumper eval`, reporting per-agent hit rate against recorded
+   ground truth. CI requires at least 4 of 5 with no live model. `evals/` ships in the app image,
+   because `eval` runs inside the deployment.
+3. Application semantic spans at `ports/model.py` and the MCP executor, exported over OTLP, with
+   Phoenix under the `obs` profile. Prove JSONL stays complete with Phoenix stopped: nothing may
+   depend on a trace being queryable.
+4. The faultbox release case end to end — injected fault → Prometheus rule → Alertmanager →
+   parallel investigation → grounded B6 → one Linear ticket → Slack receipt → JSONL replay →
+   comparison against the injected ground truth.
+5. Remove the “planned” labels in this specification one at a time, and only for commands whose
+   milestone evidence now exists. README stays a landing page and links here.
 
 ### Final v1 acceptance command set
 
-These commands are **planned until M6 lands**. At release they become the canonical quickstart
-and must be executed exactly as written before the status changes from design to implemented:
+**Planned until M6 lands.** Run it as a script rather than pasting it: `set -euo pipefail` is what
+makes a missing run id stop acceptance instead of silently replaying nothing.
 
 ```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+EVIDENCE=".artifacts/verification/m6/$(git rev-parse --short HEAD)"
+mkdir -p "$EVIDENCE"
+
 cp .env.example .env                    # fill only the M2 owner inputs from §11.3
 docker compose up -d --build
-docker compose --profile lab --profile fixtures --profile obs up -d
-uv run smokejumper fixtures replay --source grafana
-uv run smokejumper eval                 # expected: at least 4/5 deterministic cases match
-uv run smokejumper replay <run_id>      # expected: same B6 with recorded model/tool outputs
+docker compose --profile lab --profile obs up -d
+
+# Each source twice: the first delivery creates a ticket, the second must update it.
+for SOURCE in grafana datadog pagerduty; do
+  docker compose exec -T app smokejumper fixtures replay --source "$SOURCE"
+  docker compose exec -T app smokejumper fixtures replay --source "$SOURCE"
+done
+
+docker compose exec -T app smokejumper eval | tee "$EVIDENCE/eval-report.txt"
+
+RUN_ID="$(docker compose exec -T app smokejumper runs latest --format id | tr -d '\r')"
+test -n "$RUN_ID"
+docker compose exec -T app smokejumper replay "$RUN_ID" | tee "$EVIDENCE/replay-$RUN_ID.txt"
+
+docker compose exec -T app alembic current | tee "$EVIDENCE/alembic-head.txt"
+docker compose down                     # volumes preserved; `down -v` would destroy them
 ```
 
-Release proof is not the command transcript alone: retain the run ID, one-ticket idempotency
-receipt, Slack thread timestamp, audit file + byte range, eval report, Phoenix trace ID, and
-the faultbox expected-vs-actual conclusion comparison.
+Every `smokejumper` invocation runs inside the deployment because all three need Postgres, and
+`postgres` does not resolve on the host. `tr -d '\r'` is defensive: `docker compose exec` appends a
+carriage return whenever a TTY is allocated, and a run id carrying one matches no record.
+
+Release proof is more than the transcript. Retain in the M6 evidence directory: `$RUN_ID`, the
+create-then-update ticket pair for each of the three sources, the Slack thread timestamp, the audit
+file and byte range, `eval-report.txt`, the Phoenix trace id, and the faultbox
+expected-vs-actual conclusion comparison. `smokejumper eval` reporting 4/5 with no ticket receipt
+is not acceptance.
