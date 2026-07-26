@@ -24,10 +24,9 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 
 from smokejumper.persistence.database import check_connection, create_engine
-from smokejumper.queue.producer import STREAM
 from smokejumper.receiver.routes import build_router
 from smokejumper.recorder.writer import Recorder
-from smokejumper.worker import WorkerHandle, worker_task
+from smokejumper.worker import WorkerHandle, queue_depth, worker_task
 
 # A dependency that has not answered in three seconds is down as far as an
 # orchestrator is concerned; without a bound, a black-holed socket would hang
@@ -107,7 +106,7 @@ def create_app(
         # cannot serve, and flapping the container on it would lose more.
         details: dict[str, Any] = {"recorder_write_failures": recorder.failures}
         with contextlib.suppress(Exception):
-            details["queue_backlog"] = await redis.xlen(STREAM)
+            details["queue"] = await queue_depth(redis)
 
         return JSONResponse(
             status_code=200 if healthy else 503,

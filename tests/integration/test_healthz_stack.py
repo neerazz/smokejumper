@@ -39,7 +39,9 @@ def test_healthz_reports_every_component_an_incident_needs() -> None:
     assert body["redis"] == "ok"
     assert body["worker"] == "ok", "a dead worker must never report healthy"
     assert body["recorder_write_failures"] == 0
-    assert isinstance(body["queue_backlog"], int)
+    # Unprocessed work, not retained stream length. An idle system reports zero;
+    # XLEN would report every alert ever received and page on a healthy stack.
+    assert body["queue"] == {"lag": 0, "pending": 0}
 
 
 async def test_healthz_fails_closed_when_dependencies_are_unreachable() -> None:

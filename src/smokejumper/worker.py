@@ -26,6 +26,7 @@ import asyncio
 import contextlib
 import json
 import logging
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import uuid4
@@ -201,6 +202,42 @@ async def run_worker(
             for message_id, fields in messages:
                 mid = message_id.decode() if isinstance(message_id, bytes) else message_id
                 await _process(engine, redis, recorder, mid, fields)
+
+
+async def queue_depth(redis: Redis) -> dict[str, int]:
+    """Unprocessed work on the stream, as two separate numbers.
+
+    Deliberately **not** `XLEN`. XLEN counts every message still retained, which
+    on a healthy system grows with every alert ever received and only falls at
+    the `maxlen` trim — so alerting on it fires when nothing is wrong, and a
+    metric that cries wolf is worse than no metric.
+
+    - `lag`: delivered to nobody yet. This is the real backlog.
+    - `pending`: delivered but unacknowledged — in flight, or stuck from a worker
+      that died mid-run. Persistently non-zero with `lag` at zero means messages
+      are being picked up and dropped, which is a different fault than falling
+      behind and wants a different response.
+    """
+    try:
+        groups = cast("list[Mapping[Any, Any]]", await redis.xinfo_groups(STREAM))
+    except ResponseError:
+        # The stream does not exist until the first alert or `ensure_group`.
+        return {"lag": 0, "pending": 0}
+
+    def field(group: Mapping[Any, Any], key: str) -> Any:
+        """Read `key` whether redis-py decoded the reply or left it as bytes."""
+        return group.get(key, group.get(key.encode()))
+
+    for group in groups:
+        name = field(group, "name")
+        if isinstance(name, bytes):
+            name = name.decode()
+        if name == GROUP:
+            return {
+                "lag": int(field(group, "lag") or 0),
+                "pending": int(field(group, "pending") or 0),
+            }
+    return {"lag": 0, "pending": 0}
 
 
 class WorkerHandle:
