@@ -629,8 +629,7 @@ are replayed rather than fired live: Datadog and PagerDuty are SaaS with no loca
 Grafana is an alert payload format Smokejumper must normalize, not a system it operates — it is
 not a `lab` service. The lab proves the live alert *path* against faultbox ground truth, and
 Alertmanager is its source. Alertmanager is therefore never part of the replay trio, and Grafana is
-never fired live. Acceptance drives replay through the app container rather than starting the
-`fixtures` profile, because the profile's `replayer` runs the same command (§12 M1).
+never fired live.
 
 §12 owns the exact command sequence, the evidence files it must leave behind, and the rollback
 path.
@@ -645,7 +644,7 @@ complete when §12's exit evidence for it exists.
   their environment gates, the three-service Compose stack, first migration, `/healthz`, and a
   `prod` that refuses to start unsafe.
 - **M1** — an alert becomes a recorded, queued event. Flight Recorder, Receiver and normalizers,
-  fingerprint/dedupe/storm, Redis Streams, and the `lab` + `fixtures` profiles.
+  fingerprint/dedupe/storm, Redis Streams, and the `lab` profile.
 - **M2** — one alert reaches one ticket. `ModelProvider` against the chosen provider, supervisor
   graph, one specialist, Slack receipt, Linear create-vs-update.
 - **M3** — retrieval is real. `episodes` similarity plus recipes behind `MemoryPort`, cited in B6.
@@ -980,7 +979,7 @@ configuration, and no MCP at M0.
   `smokejumper check-config` command, `tests/test_config.py`.
 - RED: precedence tests cover defaults < `base.yaml` < `<env>.yaml` < env vars < CLI flags.
   Malformed config, a stubbed security-relevant port under `prod`, a missing `prod` spend ceiling,
-  and a `lab` or `fixtures` profile outside `local` must each fail boot.
+  and the `lab` profile outside `local` must each fail boot.
 - GREEN: pydantic-settings custom sources, one startup validator, and a `check-config` command
   that exits non-zero on any of those. Commit: `feat: add layered fail-closed configuration`.
 
@@ -1007,6 +1006,8 @@ configuration, and no MCP at M0.
 - GREEN: SQLAlchemy 2 async + psycopg 3 + Alembic against Postgres 16 with pgvector, plus Redis.
   Default `docker compose up` starts exactly three services — `postgres`, `redis`, `app` — and
   `/healthz` returns 200 only when the schema is at head and both backing services answer.
+  Also wire `smokejumper doctor ports` onto `scripts/check_host_ports.py`: per §11.2 it checks only
+  the profiles requested and names the owning service and override variable for each collision.
   Commit: `feat: boot the three-service core stack`.
 
 **M0 exit evidence** — `gates.txt`, `compose-config.txt`, `healthz.json`, `alembic-head.txt`,
@@ -1040,12 +1041,14 @@ docker compose down
    the 20-vs-21 fingerprint boundary, the five-minute reset, and exactly one `kind=storm` enqueue.
 5. **Redis Streams:** producer, the `intelligence` consumer group, at-least-once reclaim,
    `event.id` idempotency, max in-flight 3.
-6. **`lab` and `fixtures` profiles:** `compose/{prometheus,alertmanager,loki,promtail,faultbox}/`
-   and their provisioning. Prometheus rules fire at Alertmanager, which posts directly to
-   `/webhooks/alertmanager`; no dashboard sits on the alert path. The `fixtures` profile's
-   `replayer` is the app image running `smokejumper fixtures replay`, not a second
-   implementation. Fix the faultbox's fault-injection route in this packet and record it — no
-   later milestone may invent one.
+6. **`lab` profile:** `compose/{prometheus,alertmanager,loki,promtail,faultbox}/` and their
+   provisioning. Prometheus rules fire at Alertmanager, which posts directly to
+   `/webhooks/alertmanager`; no dashboard sits on the alert path. Fix the faultbox's
+   fault-injection route in this packet and record it — no later milestone may invent one.
+7. **Fixture replay:** `smokejumper fixtures replay --source <source>` POSTs a recorded payload
+   from `fixtures/webhooks/` at the Receiver, with that source's configured signature. This is the
+   only replay mechanism — no compose service duplicates it — and it is what §8's acceptance trio
+   runs.
 
 Commit each numbered packet separately.
 
