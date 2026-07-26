@@ -929,9 +929,11 @@ Decided once, because getting it wrong produces commands that cannot work:
   service names do not exist on the host, so a host-run `uv run smokejumper …` cannot reach the
   stack. Use `docker compose exec -T app …`; `-T` disables TTY allocation so the command works
   non-interactively and its stdout can be captured.
-- **CI is the exception:** Postgres and Redis are GitHub Actions service containers published on
-  loopback, so host-run `pytest` reaches them. CI sets `SMOKEJUMPER_TEST_STACK=1`, which turns
-  the `integration` and `e2e` skips into hard requirements (§8).
+- **CI is not an exception.** It brings up the same `docker compose` stack and reaches Postgres
+  and Redis the same way, because a second route to the database would be a second thing that can
+  be wrong — and it is the route that would be exercised only in CI, where nobody is watching. CI
+  sets `SMOKEJUMPER_TEST_STACK=1`, which turns the `integration` and `e2e` skips into hard
+  requirements (§8); without it those tests would pass by not running.
 
 A command that runs inside the deployment needs its data there. The app image carries `config/`,
 and each later milestone adds the read-only data it creates — `prompts/`, `registry/`,
@@ -990,18 +992,21 @@ M0 proves four things and nothing else: the three-service stack boots, its schem
 configuration, and no MCP at M0.
 
 **M0.1 · CLI entry point and CI**
-- Create: `src/smokejumper/cli.py` (Typer), `Dockerfile`, `.dockerignore`,
-  `tests/test_package.py`, `.github/workflows/ci.yml`. `pyproject.toml`, `uv.lock`, `.gitignore`,
+- Create: `src/smokejumper/cli.py` (Typer), `.dockerignore`, `tests/unit/test_cli.py`,
+  `.github/workflows/ci.yml`. `pyproject.toml`, `uv.lock`, `.gitignore`,
   `scripts/check_doc_contract.py`, and `tests/test_doc_contract.py` already exist; they are wired
   into CI, not created.
 - RED: `smokejumper --help` fails to import `smokejumper.cli`, and no workflow runs the gates.
-- GREEN: the declared console script resolves. CI runs the five universal gates on Python 3.12
-  with Postgres+pgvector and Redis service containers on loopback and `SMOKEJUMPER_TEST_STACK=1`,
-  then uploads `.artifacts/`. Commit: `build: add CLI entry point and CI workflow`.
+- GREEN: the declared console script resolves and `smokejumper check-config` is reachable **as a
+  subcommand** — Typer collapses a single-command app into a bare command, so the group anchor is
+  load-bearing and is asserted rather than assumed. CI runs the five universal gates on Python
+  3.12, then a second job that boots the Compose stack and runs the `integration` tests with
+  `SMOKEJUMPER_TEST_STACK=1`, and uploads `.artifacts/`.
+  Commit: `build: add CLI entry point and CI workflow`.
 
 **M0.2 · One validated settings object**
 - Create: `src/smokejumper/config.py`, `config/{base,local,dev,prod}.yaml`, `.env.example`, the
-  `smokejumper check-config` command, `tests/test_config.py`.
+  `smokejumper check-config` command, `tests/unit/test_config.py`.
 - RED: precedence tests cover defaults < `base.yaml` < `<env>.yaml` < env vars < CLI flags.
   Malformed config, a stubbed security-relevant port under `prod`, a missing `prod` spend ceiling,
   and the `lab` profile outside `local` must each fail boot.
@@ -1018,21 +1023,26 @@ configuration, and no MCP at M0.
 
 **M0.4 · Hexagonal ports and environment stubs**
 - Create: `src/smokejumper/ports/{auth,governance,tenancy,model,platform,ticketing,memory,channel}.py`,
-  `src/smokejumper/ports/stubs.py`, `tests/ports/test_stubs.py`.
+  `src/smokejumper/ports/stubs.py`, `tests/unit/test_ports.py`.
 - RED: local accepts loud stubs; dev warns; prod rejects every security-relevant stub.
 - GREEN: protocols plus the smallest stubs that satisfy them. `ports/model.py` is declared here
   and implemented at M2. Commit: `feat: add environment-gated ports`.
 
 **M0.5 · App, persistence, and the three-service Compose stack**
 - Create: `src/smokejumper/app.py`, `src/smokejumper/persistence/database.py`, `alembic.ini`,
-  `migrations/` with the first revision, `docker-compose.yml`, `tests/test_health.py`,
-  `tests/integration/test_stack.py`.
+  `migrations/` with the first revision, `docker-compose.yml`, `Dockerfile`,
+  `tests/integration/test_healthz_stack.py`, `tests/integration/test_schema_stack.py`.
+  Test module basenames are unique across the whole suite: pytest's default import mode fails on
+  a duplicate basename when packages have no `__init__.py`, so `test_health.py` in two directories
+  would collide.
 - RED: `GET /healthz` 404s, no schema exists, and `SMOKEJUMPER_ENV=prod` boots happily.
 - GREEN: SQLAlchemy 2 async + psycopg 3 + Alembic against Postgres 16 with pgvector, plus Redis.
   Default `docker compose up` starts exactly three services — `postgres`, `redis`, `app` — and
   `/healthz` returns 200 only when the schema is at head and both backing services answer.
-  Also wire `smokejumper doctor ports` onto `scripts/check_host_ports.py`: per §11.2 it checks only
-  the profiles requested and names the owning service and override variable for each collision.
+  Host-port collisions are caught by `python3 scripts/check_host_ports.py`, which §11.2 makes the
+  single inventory holder — there is deliberately no `smokejumper doctor ports`, because a
+  preflight has to run before `uv sync` and before the app holds its port, and a command inside
+  the installed package can do neither.
   Commit: `feat: boot the three-service core stack`.
 
 **M0 exit evidence** — `gates.txt`, `compose-config.txt`, `healthz.json`, `alembic-head.txt`,
