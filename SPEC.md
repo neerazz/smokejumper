@@ -630,10 +630,14 @@ Added 2026-07-25 (architecture update):
     backends are real locally; Datadog/PagerDuty are SaaS and get a `fixtures` replayer
     instead. Loki over ELK on footprint. *Amended by 17: Grafana left the `lab` profile, and
     the default stack stayed at three services.*
-12. **One application MCP domain** (§5.5, ADR-0017; amended by ADR-0021) — `hub/` and the `knowledge/` federated client
-    collapse into `src/smokejumper/mcp/`: one client, one governance seam, one central tier
-    manifest, our servers in-process, federated servers as descriptors. This closes a path
-    where knowledge federation reached an external server without a tier check.
+12. **One application MCP domain** (§5.5, ADR-0017) — `hub/` and the `knowledge/` federated
+    client collapse into `src/smokejumper/mcp/`: one client, one governance seam, one central
+    tier manifest, our servers in-process, federated servers as descriptors. This closes a path
+    where knowledge federation reached an external server without a tier check. *Amended by 17
+    in framing only: the single client reaches our servers in-process and federated servers
+    directly, rather than through a proxy's virtual MCP endpoint. Deferring the proxy removed a
+    network tier, not the seam — the client, the manifest, and tier-checked federation all
+    stand, which is the property ADR-0017 exists to protect.*
 13. **Layered per-environment config** (§2d, ADR-0018) — `local`/`dev`/`prod` selected by
     `SMOKEJUMPER_ENV`, layered `base.yaml` → `<env>.yaml` → env vars → flags into one
     validated settings object; secrets by reference only. Deliberately distinct from compose
@@ -660,7 +664,7 @@ Amended 2026-07-26 (subtraction pass, approved by Neeraj):
 
 17. **Four layers removed from v1.** The design had accreted for months without a single
     removal, and each of these cost more than it returned at v1 scale:
-    - **agentgateway deferred** (supersedes 16; ADR-0021 is now Deferred). Its commissioned
+    - **agentgateway deferred** (supersedes 16, amends 12; ADR-0021 is now Deferred). Its commissioned
       security review returned "conditional accept; not safe as currently specified" with eight
       High findings; §5.5 already conceded that the app stays authoritative for every semantic
       decision the proxy duplicated; and it made M0 unbuildable, because M0 generated proxy
