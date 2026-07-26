@@ -7,7 +7,6 @@ import argparse
 import re
 from pathlib import Path
 
-
 REQUIRED_SPEC_HEADINGS = (
     "## 0. Documentation contract",
     "## 11. Build prerequisites and operator inputs",
@@ -25,6 +24,30 @@ README_FORBIDDEN_TOKENS = (
 )
 
 MARKDOWN_LINK = re.compile(r"!?(?:\[[^\]]*\])\(([^)]+)\)")
+
+# Directories whose markdown is not ours to validate. Without this the gate fails
+# as soon as dependencies are installed, because vendored packages ship their own
+# READMEs with links that are broken relative to this repository.
+EXCLUDED_DIRS = frozenset(
+    {
+        ".git",
+        ".venv",
+        "venv",
+        ".artifacts",
+        "node_modules",
+        "build",
+        "dist",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".uv-cache",
+        ".mypy_cache",
+    }
+)
+
+
+def _is_ours(path: Path, root: Path) -> bool:
+    """True when `path` is repository-authored markdown rather than vendored."""
+    return not any(part in EXCLUDED_DIRS for part in path.relative_to(root).parts)
 
 
 def validate(root: Path) -> list[str]:
@@ -45,8 +68,7 @@ def validate(root: Path) -> list[str]:
     for token in README_FORBIDDEN_TOKENS:
         if token in readme:
             errors.append(
-                f"README.md contains forbidden normative token {token!r}; "
-                "link to SPEC.md instead"
+                f"README.md contains forbidden normative token {token!r}; link to SPEC.md instead"
             )
 
     for heading in REQUIRED_SPEC_HEADINGS:
@@ -54,7 +76,7 @@ def validate(root: Path) -> list[str]:
             errors.append(f"SPEC.md is missing required heading: {heading}")
 
     for markdown_path in sorted(root.rglob("*.md")):
-        if ".git" in markdown_path.parts:
+        if not _is_ours(markdown_path, root):
             continue
         text = markdown_path.read_text(encoding="utf-8")
         if text.count("```") % 2:

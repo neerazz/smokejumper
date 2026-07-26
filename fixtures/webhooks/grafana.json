@@ -1,0 +1,94 @@
+{
+  "receiver": "smokejumper",
+  "status": "firing",
+  "orgId": 1,
+  "groupKey": "{}/{}:{alertname=\"OnlineTableLag\"}",
+  "truncatedAlerts": 0,
+  "title": "[FIRING:2] OnlineTableLag",
+  "state": "alerting",
+  "externalURL": "https://grafana.internal/",
+  "version": "1",
+  "groupLabels": {
+    "alertname": "OnlineTableLag"
+  },
+  "commonLabels": {
+    "alertname": "OnlineTableLag",
+    "grafana_folder": "Data Platform",
+    "service": "feature-store"
+  },
+  "commonAnnotations": {
+    "runbook_url": "https://runbooks.internal/online-table-lag"
+  },
+  "alerts": [
+    {
+      "status": "firing",
+      "fingerprint": "3f2a91c0deadbeef",
+      "startsAt": "2026-07-26T18:25:03Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "https://grafana.internal/alerting/grafana/adm7x2k/view",
+      "silenceURL": "https://grafana.internal/alerting/silence/new",
+      "dashboardURL": "",
+      "panelURL": "",
+      "values": {
+        "B": 22.4
+      },
+      "valueString": "[ var='B' labels={table=merchant_features} value=22.4 ]",
+      "labels": {
+        "__alert_rule_uid__": "adm7x2k",
+        "alertname": "OnlineTableLag",
+        "grafana_folder": "Data Platform",
+        "severity": "critical",
+        "service": "feature-store",
+        "env": "prod",
+        "table": "merchant_features",
+        "team": "data-platform"
+      },
+      "annotations": {
+        "summary": "online table lag above 15m",
+        "description": "merchant_features lag is 22 minutes",
+        "runbook_url": "https://runbooks.internal/online-table-lag"
+      }
+    },
+    {
+      "status": "firing",
+      "fingerprint": "9b17c4de01234567",
+      "startsAt": "2026-07-26T18:26:11Z",
+      "endsAt": "0001-01-01T00:00:00Z",
+      "generatorURL": "https://grafana.internal/alerting/grafana/adm7x2k/view",
+      "values": {
+        "B": 17.1
+      },
+      "labels": {
+        "__alert_rule_uid__": "adm7x2k",
+        "alertname": "OnlineTableLag",
+        "grafana_folder": "Data Platform",
+        "severity": "warning",
+        "service": "feature-store",
+        "env": "prod",
+        "table": "advance_features",
+        "team": "data-platform"
+      },
+      "annotations": {
+        "summary": "online table lag above 15m",
+        "description": "advance_features lag is 17 minutes"
+      }
+    },
+    {
+      "status": "resolved",
+      "fingerprint": "c0ffee1122334455",
+      "startsAt": "2026-07-26T17:40:00Z",
+      "endsAt": "2026-07-26T18:20:00Z",
+      "labels": {
+        "__alert_rule_uid__": "adm7x2k",
+        "alertname": "OnlineTableLag",
+        "severity": "warning",
+        "service": "feature-store",
+        "env": "prod",
+        "table": "risk_features"
+      },
+      "annotations": {
+        "description": "risk_features lag recovered"
+      }
+    }
+  ]
+}

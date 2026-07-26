@@ -1,0 +1,25 @@
+# `local` environment (SPEC 2d). Laptop deployment; stub ports are allowed here
+# and only here. Postgres and Redis URLs are absent on purpose: they carry
+# credentials, so they arrive as environment variables from `.env`.
+tools:
+  # Reachable only with the `lab` compose profile running (SPEC 2c).
+  prometheus_url: http://prometheus:9090
+  loki_url: http://loki:3100
+
+budget:
+  max_usd_per_run: "1.00"
+
+# Substitutes everywhere a real implementation needs an account or a credential
+# that is not an M0 prerequisite (SPEC 11.3). `memory` is a substitute too, and
+# deliberately: compose runs Postgres, but the `MemoryPort` Postgres adapter is
+# built at M3, so naming it here would select code that does not exist. This is
+# the one environment that must boot today, so it names only what exists.
+ports:
+  auth: AllowAll
+  governance: NoopGovernance
+  tenancy: SingleTenant
+  model: RecordedModel
+  platform: FixturePlatform
+  channel: FakeChannel
+  ticketing: FixtureTicketing
+  memory: InMemoryStore

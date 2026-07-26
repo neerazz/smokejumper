@@ -1,0 +1,113 @@
+name: ci
+
+# The five gates SPEC 12 names, in the order a developer runs them, plus the
+# stack-backed tests that skip locally. Nothing here is a CI-only code path:
+# the integration job brings up the same `docker compose` stack a developer
+# does, because a second way to reach Postgres would be a second thing that
+# can be wrong.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Documentation contract
+        run: python3 scripts/check_doc_contract.py
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # --frozen fails rather than re-resolving, so CI can only ever test what
+      # uv.lock says a developer would get.
+      - name: Install
+        run: uv sync --frozen --all-groups
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format
+        run: uv run ruff format --check .
+
+      - name: Types
+        run: uv run pyright
+
+      - name: Tests
+        run: uv run pytest
+
+  stack:
+    # Separate job so a lint failure does not wait on containers, and so the
+    # integration result is legible on its own.
+    runs-on: ubuntu-latest
+    env:
+      # Generated here, not read from a repository secret. This token only
+      # authenticates a test webhook against a throwaway stack, so it is not a
+      # credential — and requiring a secret meant the ingestion tests skipped
+      # silently on any checkout that lacked one, which is how this job was
+      # passing green while running 5 of 16 tests.
+      SMOKEJUMPER__WEBHOOKS__DATADOG__SECRET: ci-ephemeral-webhook-token
+      SMOKEJUMPER__WEBHOOKS__PAGERDUTY__SECRET: ci-ephemeral-webhook-token
+      SMOKEJUMPER__WEBHOOKS__GRAFANA__SECRET: ci-ephemeral-webhook-token
+      SMOKEJUMPER__WEBHOOKS__GENERIC__SECRET: ci-ephemeral-webhook-token
+      # Alertmanager authenticates by peer network. Inside compose the peer is
+      # the bridge gateway, so the private ranges are what the app sees.
+      SMOKEJUMPER__WEBHOOKS__ALERTMANAGER_ALLOWLIST: '["172.16.0.0/12","192.168.0.0/16","10.0.0.0/8"]'
+      SMOKEJUMPER_TEST_STACK: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --frozen --all-groups
+
+      # Belongs here rather than in `gates`: this is the job that binds host
+      # ports, so this is the only job where a collision means anything. Run
+      # before `up`, which is the point of a preflight.
+      - name: Host port preflight
+        run: python3 scripts/check_host_ports.py
+
+      - name: Boot the default stack
+        run: docker compose up -d --build --wait
+
+      # SMOKEJUMPER_TEST_STACK=1 turns the integration skips into hard
+      # requirements. Without it these tests would pass by not running, which is
+      # the failure mode tests/conftest.py exists to prevent.
+      #
+      # The skip count is then asserted to be zero. A green check that ran a
+      # fraction of the suite is worse than a red one, because nobody looks
+      # twice at a tick — so "skipped" is treated as failure here even though
+      # pytest exits 0 for it.
+      - name: Stack-backed tests
+        run: |
+          uv run pytest -m integration -p no:cacheprovider | tee /tmp/stack.log
+          if grep -q "skipped" /tmp/stack.log; then
+            echo "::error::integration tests skipped in CI; they must all run"
+            exit 1
+          fi
+
+      - name: Configuration validates inside the container
+        run: docker compose exec -T app smokejumper check-config
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: docker compose ps && docker compose logs --no-color
+
+      # No `-v`. docker-compose.yml pins `name: smokejumper`, so this acts on
+      # the committed default project, and SPEC 12 forbids `-v` there because it
+      # deletes the Postgres and Redis volumes. Harmless on an ephemeral runner,
+      # destructive on a self-hosted one and in anything copied from here.
+      - name: Tear down
+        if: always()
+        run: docker compose down

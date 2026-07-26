@@ -1,0 +1,24 @@
+# `prod` environment (SPEC 2d). This file plus injected environment variables is
+# the entire contract: nothing here assumes compose, so prod may run on k8s, ECS,
+# or a single VM.
+#
+# There is deliberately no `budget` section. prod has no spend-ceiling default,
+# so boot fails until SMOKEJUMPER__BUDGET__MAX_USD_PER_RUN is supplied rather
+# than starting with an unlimited ledger (SPEC 11.3).
+#
+# Endpoints are absent for the same reason as dev: they are deployment-specific
+# and credential-bearing, so they arrive as environment variables.
+
+# Real implementations only. Every substitute below is refused at boot in prod
+# (SPEC 5.10), and the host-supplied Auth/Governance/Platform adapters do not
+# exist yet — so prod intentionally will not boot until they are built
+# (SPEC 11.5.2). `SingleTenant` is the v1 implementation, not a stub.
+ports:
+  auth: HostVerifier
+  governance: HostPolicy
+  tenancy: SingleTenant
+  model: DirectProvider
+  platform: HostPlatform
+  channel: Slack
+  ticketing: Linear
+  memory: Postgres

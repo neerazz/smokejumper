@@ -3,7 +3,7 @@
 
   <!-- ═══ Title ═══ -->
   <text x="60" y="78" font-size="30" font-weight="700" fill="#10334a">Smokejumper — agentic SRE incident responder</text>
-  <text x="60" y="106" font-size="15" fill="#5b6b7a">Layered component view · v1 design (updated 2026-07-25) · an alert lands, Smokejumper parachutes in, investigates in parallel, reports back with receipts</text>
+  <text x="60" y="106" font-size="15" fill="#5b6b7a">Layered component view · v1 design (updated 2026-07-26) · an alert lands, Smokejumper parachutes in, investigates in parallel, reports back with receipts</text>
 
   <!-- ═══ Band 1 · Channels ═══ -->
   <rect x="60" y="130" width="1540" height="104" rx="10" fill="#e9f3f7" stroke="#7fb0bd"/>
@@ -23,7 +23,7 @@
     <text x="1420" y="178">Linear</text>
   </g>
   <g font-size="11.5" fill="#5b6b7a" text-anchor="middle">
-    <text x="330" y="196">webhook · in · local in lab</text>
+    <text x="330" y="196">webhook · in · Alertmanager in lab</text>
     <text x="548" y="196">webhook · in · SaaS, replayed</text>
     <text x="766" y="196">events v2 · in · SaaS, replayed</text>
     <text x="984" y="196">JSON webhook · in</text>
@@ -141,28 +141,28 @@
     <rect x="856" y="576" width="338" height="142" rx="8" fill="#f7f4fd" stroke="#6741b8"/>
     <text x="870" y="600" font-size="15" font-weight="700" fill="#2f1e5c">Knowledge façade (B3)</text>
     <text x="870" y="622" font-size="12.5" fill="#2f1e5c">retrieve(ctx) → KnowledgeBundle.</text>
-    <text x="870" y="639" font-size="12.5" fill="#2f1e5c">Vectors find the entry points, the</text>
-    <text x="870" y="656" font-size="12.5" fill="#2f1e5c">graph expands them ≤2 hops — one</text>
-    <text x="870" y="673" font-size="12.5" fill="#2f1e5c">call, four modalities behind it.</text>
+    <text x="870" y="639" font-size="12.5" fill="#2f1e5c">Similar past incidents plus matching</text>
+    <text x="870" y="656" font-size="12.5" fill="#2f1e5c">runbooks, under a token budget — one</text>
+    <text x="870" y="673" font-size="12.5" fill="#2f1e5c">call, the modalities behind it.</text>
     <text x="870" y="690" font-size="12.5" fill="#2f1e5c">Federation goes through the gateway.</text>
 
     <rect x="856" y="734" width="338" height="142" rx="8" fill="#f7f4fd" stroke="#6741b8"/>
-    <text x="870" y="758" font-size="15" font-weight="700" fill="#2f1e5c">Three memory types + federation</text>
+    <text x="870" y="758" font-size="15" font-weight="700" fill="#2f1e5c">Memory types + federation</text>
     <text x="870" y="780" font-size="12.5" fill="#2f1e5c">① Episodic — past incidents (pgvector)</text>
     <text x="870" y="797" font-size="12.5" fill="#2f1e5c">② Semantic — caused_by · fixed_by ·</text>
-    <text x="870" y="814" font-size="12.5" fill="#2f1e5c">applies_to edges, plus system topology</text>
+    <text x="870" y="814" font-size="12.5" fill="#2f1e5c">applies_to edges: POST-V1, behind MemoryPort</text>
     <text x="870" y="831" font-size="12.5" fill="#2f1e5c">③ Procedural — runbook recipes (YAML)</text>
     <text x="870" y="848" font-size="12.5" fill="#2f1e5c">④ Federated — external, via the gateway</text>
 
     <rect x="856" y="892" width="338" height="172" rx="8" fill="#f7f4fd" stroke="#6741b8"/>
-    <text x="870" y="916" font-size="15" font-weight="700" fill="#2f1e5c">Bi-temporal store + Distiller</text>
-    <text x="870" y="938" font-size="12.5" fill="#2f1e5c">Every node and edge carries valid_at</text>
-    <text x="870" y="955" font-size="12.5" fill="#2f1e5c">and recorded_at, so replay can ask</text>
-    <text x="870" y="972" font-size="12.5" fill="#2f1e5c">what we believed at decision time.</text>
-    <text x="870" y="989" font-size="12.5" fill="#2f1e5c">The Distiller is the one-way learning</text>
-    <text x="870" y="1006" font-size="12.5" fill="#2f1e5c">loop from the recorder: case</text>
-    <text x="870" y="1023" font-size="12.5" fill="#2f1e5c">embeddings and edges commit; draft</text>
-    <text x="870" y="1040" font-size="12.5" fill="#2f1e5c">recipes wait for a human. (B9)</text>
+    <text x="870" y="916" font-size="15" font-weight="700" fill="#2f1e5c">Bi-temporal episode store</text>
+    <text x="870" y="938" font-size="12.5" fill="#2f1e5c">Every episode carries valid_at and</text>
+    <text x="870" y="955" font-size="12.5" fill="#2f1e5c">recorded_at, so replay can ask what</text>
+    <text x="870" y="972" font-size="12.5" fill="#2f1e5c">we believed at decision time.</text>
+    <text x="870" y="989" font-size="12.5" fill="#2f1e5c">Hand-rolled on Graphiti's published</text>
+    <text x="870" y="1006" font-size="12.5" fill="#2f1e5c">data model, on the one Postgres,</text>
+    <text x="870" y="1023" font-size="12.5" fill="#2f1e5c">behind MemoryPort. The Distiller that</text>
+    <text x="870" y="1040" font-size="12.5" fill="#2f1e5c">would write it (B9) is post-v1.</text>
   </g>
 
   <!-- Column 4 · EXECUTION -->
@@ -206,7 +206,7 @@
   <!-- ═══ Runtime foundation ═══ -->
   <rect x="60" y="1192" width="1540" height="72" rx="10" fill="#e9f3f7" stroke="#7fb0bd"/>
   <text x="830" y="1222" font-size="17" font-weight="700" fill="#0b7285" text-anchor="middle">RUNTIME FOUNDATION</text>
-  <text x="830" y="1246" font-size="13.5" fill="#3d4852" text-anchor="middle">FastAPI · LangGraph + Postgres checkpointer · Redis Streams · one Postgres 16 + pgvector · FastMCP · model-agnostic LLM provider</text>
+  <text x="830" y="1246" font-size="13.5" fill="#3d4852" text-anchor="middle">Three services: app · one Postgres 16 + pgvector · Redis. FastAPI · LangGraph + Postgres checkpointer · in-process FastMCP · model-agnostic LLM provider</text>
 
   <!-- ═══ How it works ═══ -->
   <rect x="60" y="1284" width="1540" height="186" rx="10" fill="#fffdf5" stroke="#b8a800"/>
@@ -216,18 +216,18 @@
     <text x="98" y="1361">an open event or coalesces a storm of them into one. No model has run yet.</text>
     <text x="84" y="1387">2 · The event lands on Redis Streams. The Governor decides how many investigations may run at once, and</text>
     <text x="98" y="1404">under a storm only criticals get dequeued.</text>
-    <text x="84" y="1430">3 · The supervisor wakes and retrieves memory — similar past incidents, causal edges, matching runbooks —</text>
-    <text x="98" y="1447">then plans which specialists can answer the question the alert is really asking.</text>
+    <text x="84" y="1430">3 · The supervisor wakes and retrieves memory — similar past incidents and matching runbooks — then</text>
+    <text x="98" y="1447">plans which specialists can answer the question the alert is really asking.</text>
     <text x="856" y="1344">4 · Specialists run in parallel, each stateless and budgeted, calling read-tier tools through the one MCP gateway.</text>
     <text x="870" y="1361">A privileged call suspends the entire run until a human approves it in Slack with a single-use token.</text>
     <text x="856" y="1387">5 · Findings aggregate into exactly one Conclusion (B6) with confidence and evidence references. Nothing</text>
     <text x="870" y="1404">downstream of this contract is allowed to call a model.</text>
     <text x="856" y="1430">6 · Actions create or update one ticket per fingerprint and post a Slack receipt. The recorder holds the whole</text>
-    <text x="870" y="1447">trace as JSONL; replay re-runs it, and the Distiller turns closed cases into memory.</text>
+    <text x="870" y="1447">trace as JSONL, and replay re-runs it from the recorded model and tool outputs.</text>
   </g>
 
   <!-- ═══ Legend ═══ -->
   <text x="60" y="1500" font-size="12.5" fill="#5b6b7a">Dashed = black-box port or external (v1 ships stubs) · Amber = human-approval-gated · Violet = knowledge &amp; memory · Teal = core, deterministic edges · Blue = platform services</text>
   <text x="60" y="1522" font-size="12.5" fill="#5b6b7a">Determinism boundaries: no model runs before B2 or after B6 · Governance invariant: every tool call, including knowledge federation, crosses the one MCP gateway</text>
-  <text x="60" y="1544" font-size="12.5" fill="#5b6b7a">Learning path: Flight Recorder → Distiller → memory (recipes human-gated) · Versioned boundary contracts B1–B11 · event-flow detail in smokejumper-architecture.mmd</text>
+  <text x="60" y="1544" font-size="12.5" fill="#5b6b7a">Post-v1, so absent here: the knowledge graph and ≤2-hop expansion, and the Distiller · Versioned boundary contracts B1–B11 · event-flow detail in smokejumper-architecture.mmd</text>
 </svg>

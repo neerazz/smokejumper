@@ -1,6 +1,7 @@
 # ADR-0016: Local observability stack behind compose profiles; SaaS sources replayed
 
-**Status:** Accepted · 2026-07-25 · **Level:** L2
+**Status:** Accepted · 2026-07-25 · **Level:** L2 · **Amended** 2026-07-26 (Grafana and the
+`fixtures` profile both dropped — see "Amended" below)
 
 ## Context
 v1's alert sources (Grafana, Datadog, PagerDuty, generic) and its read-tier tool backends
@@ -16,11 +17,28 @@ ships telemetry to their cloud, and getting their webhooks back to a laptop need
 tunnel. Any "just add it to compose" plan silently assumes otherwise.
 
 ## Decision
-Add a **`lab` compose profile** with prometheus + alertmanager, grafana (OSS), loki +
-promtail, and a `faultbox` fault-injection app. Add a **`fixtures` profile** with a replayer
-that POSTs recorded Datadog/PagerDuty payloads at the Receiver. Default `docker compose up`
-remains postgres + redis + app. Prometheus becomes the `metric query` backend; Loki becomes
-the `log search` backend.
+Add a **`lab` compose profile** with prometheus + alertmanager, loki + promtail, and a
+`faultbox` fault-injection app. Recorded Datadog/PagerDuty payloads are POSTed at the Receiver by
+a `fixtures replay` CLI command. Default `docker compose up` remains postgres + redis + app.
+Prometheus becomes the `metric query` backend; Loki becomes the `log search` backend.
+
+## Amended 2026-07-26: no Grafana, no `fixtures` profile
+Two pieces of the original profile set earned removal, and both for the same reason — a container
+that added no coverage.
+
+**Grafana.** The original `lab` profile ran Grafana OSS as a second local alert source.
+Alertmanager already fires a real HTTP webhook at the Receiver, so the second source added a
+container without adding coverage: what the Grafana normalizer has to get right is the *payload
+shape*, and that is tested by golden fixtures and by replay, exactly like Datadog and PagerDuty.
+Grafana remains a supported alert source; it is simply not run locally.
+
+**The `fixtures` profile.** Its only service was the app image running one CLI command, which
+acceptance invokes directly. That is a compose service, a profile, and an environment-gating rule
+in exchange for nothing. The recorded corpus — the part that actually does the work, since the
+golden per-source tests read it — is untouched.
+
+Loki stays. `log search` still needs a real backend, and losing it would return that tool to the
+unbacked state this record exists to fix.
 
 ## Options considered
 1. **Profiles + Loki + fixture replay for SaaS (chosen).**
@@ -39,12 +57,12 @@ the `log search` backend.
 - **We gave up** Logstash/Elasticsearch parsing and query power for footprint. Loki's LogQL
   is weaker at ad-hoc analytics; for "fetch the logs around this incident window" it is
   sufficient, and that is the only query shape `log search` needs.
-- **We gave up** true fidelity for Datadog and PagerDuty: we test our normalizers and HMAC
+- **We gave up** true fidelity for Datadog and PagerDuty: we test our normalizers and their
   verification against *recorded* payloads, so a vendor changing their webhook shape is
   caught by fixture staleness, not by the lab. §8's golden fixtures are the tripwire, and
   ADR-0014 already accepted payload-drift maintenance.
-- **We accepted** a second and third compose invocation to document (`--profile lab`,
-  `--profile fixtures`) as the price of keeping the default trivial.
+- **We accepted** a second compose invocation to document (`--profile lab`) as the price of
+  keeping the default trivial.
 - **We kept** — and this is the reason the ADR exists at all — a path to *mechanically
   scored* conclusions. A faultbox-injected fault has known ground truth, so a run's
   Conclusion can be graded automatically instead of eyeballed. The lab is the eval-corpus

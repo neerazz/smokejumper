@@ -1,0 +1,94 @@
+# The default stack is three services (SPEC 2c). `lab`, `fixtures`, and `obs`
+# services arrive with M1 and M6 and are not declared until they exist.
+#
+# The project name is fixed so the stack, its volumes, and its network do not
+# change identity when the checkout directory is named something else.
+name: smokejumper
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.1-pg16
+    environment:
+      POSTGRES_DB: smokejumper
+      POSTGRES_USER: smokejumper
+      # A default keeps `docker compose up` a one-command start. It is safe only
+      # because this port is never published: the database is reachable solely
+      # from the compose network. Real environments inject a real password.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-smokejumper}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username=smokejumper --dbname=smokejumper"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  redis:
+    image: redis:7.4-alpine
+    # The queue is the replayable inbox (SPEC 5.2); an in-memory-only Redis
+    # would drop enqueued incidents on restart.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "PING"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SMOKEJUMPER_ENV: ${SMOKEJUMPER_ENV:-local}
+      SMOKEJUMPER__DATABASE__URL: postgresql+psycopg://smokejumper:${POSTGRES_PASSWORD:-smokejumper}@postgres:5432/smokejumper
+      SMOKEJUMPER__REDIS__URL: redis://redis:6379/0
+      # The token Datadog is configured to send as X-Smokejumper-Token. Empty by
+      # default, and an empty secret rejects every delivery (SPEC 5.1) rather than
+      # accepting unauthenticated alerts.
+      SMOKEJUMPER__WEBHOOKS__DATADOG__SECRET: ${SMOKEJUMPER__WEBHOOKS__DATADOG__SECRET:-}
+      # Same fail-closed default for every other source. PagerDuty and Grafana
+      # send a shared token; the generic endpoint signs the body.
+      SMOKEJUMPER__WEBHOOKS__PAGERDUTY__SECRET: ${SMOKEJUMPER__WEBHOOKS__PAGERDUTY__SECRET:-}
+      SMOKEJUMPER__WEBHOOKS__GRAFANA__SECRET: ${SMOKEJUMPER__WEBHOOKS__GRAFANA__SECRET:-}
+      SMOKEJUMPER__WEBHOOKS__GENERIC__SECRET: ${SMOKEJUMPER__WEBHOOKS__GENERIC__SECRET:-}
+      # Alertmanager sends no credential at all, so the peer network is the only
+      # control. JSON list of CIDRs, e.g. '["172.16.0.0/12"]'. Empty admits
+      # nothing, which is the right default for an unauthenticated write path.
+      SMOKEJUMPER__WEBHOOKS__ALERTMANAGER_ALLOWLIST: ${SMOKEJUMPER__WEBHOOKS__ALERTMANAGER_ALLOWLIST:-[]}
+      # Compose's own variable, forwarded so the app sees the profiles it was
+      # actually started with. Without it the rule refusing `lab` outside
+      # `local` (SPEC 2d) inspects an empty list and passes vacuously.
+      COMPOSE_PROFILES: ${COMPOSE_PROFILES:-}
+    # The audit record must outlive the container: it is the source of truth for
+    # replay (SPEC 5.8), so losing it on `down` would lose every run's evidence.
+    volumes:
+      - audit-logs:/app/logs
+    # The only host-published port in the stack, and loopback-only: an alert
+    # webhook receiver bound to 0.0.0.0 is reachable from the local network.
+    ports:
+      - "127.0.0.1:${APP_HOST_PORT:-8000}:8000"
+    # Python is already in the image, so this needs no curl. `urlopen` raises on
+    # any status other than 2xx, which is exactly the contract /healthz offers.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+volumes:
+  postgres-data:
+  redis-data:
+  audit-logs:

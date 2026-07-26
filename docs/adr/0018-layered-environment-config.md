@@ -1,6 +1,6 @@
 # ADR-0018: Layered per-environment config in one validated settings object; prod fails closed
 
-**Status:** Accepted · 2026-07-25 · **Level:** L2 · **Strengthens** [ADR-0004](0004-hexagonal-ports.md) (closes its accepted stub risk)
+**Status:** Accepted · 2026-07-25 · **Level:** L2 · **Strengthens** [ADR-0004](0004-hexagonal-ports.md) (closes its accepted stub risk) · **Amended** 2026-07-26 (the `fixtures` compose profile was removed — [ADR-0016](0016-local-observability-stack.md) — so gate 2 covers `lab` alone; the layering and the three gates are otherwise unchanged)
 
 ## Context
 Every deployment target needs different values: local points at compose service names, dev at
@@ -11,8 +11,8 @@ what varies where.
 
 Two hazards made this worth an ADR rather than a convention.
 
-**The word "profile" was about to mean two things.** §2c introduced docker-compose profiles
-(`lab`, `fixtures`) that select which *services* start. Deployment environments select which
+**The word "profile" was about to mean two things.** §2c and §2e introduce docker-compose
+profiles (`lab`, `obs`) that select which *services* start. Deployment environments select which
 *values* are used. Same word, orthogonal axes, guaranteed confusion in every future
 conversation and config file.
 
@@ -35,7 +35,7 @@ selection. The spec does not use "profile" for the former.
 
 Three gates are enforced at boot, not documented:
 1. `prod` refuses to start while any security-relevant port is a stub.
-2. `lab` / `fixtures` compose profiles are refused outside `local`.
+2. The `lab` compose profile is refused outside `local`.
 3. `prod` requires an explicit spend ceiling; absent one, boot fails.
 
 ## Options considered

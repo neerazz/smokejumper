@@ -1,0 +1,47 @@
+# Secrets and local-only configuration.
+# config/*.yaml IS committed: it holds references, never values (SPEC 2d).
+.env
+.env.*
+!.env.example
+docker-compose.override.yml
+
+# Flight Recorder output. The audit record is the source of truth (SPEC 5.8),
+# but it is operator data, not source. Retention is deliberately unmanaged.
+logs/
+
+# Milestone verification receipts (SPEC 12). CI uploads these; git never carries them.
+.artifacts/
+
+# Distiller drafts are promoted by a human; the drafts directory itself is tracked.
+recipes/drafts/*
+!recipes/drafts/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+.venv/
+venv/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.uv-cache/
+.mypy_cache/
+.pyright/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

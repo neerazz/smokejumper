@@ -6,8 +6,17 @@ An alert lands, Smokejumper dispatches budgeted specialist investigators in para
 reports a grounded conclusion with receipts—creating or updating exactly one ticket per
 incident fingerprint.
 
-> **Status: design complete; implementation not started.** The repository does not yet contain
-> a runnable application or Compose stack. Commands are published as runnable only after their
+> **Status: the alert-to-ticket path works end to end.** Bring the stack up, POST a Datadog
+> webhook, and the system verifies it, normalizes it, deduplicates it, opens a run, reaches a
+> `Conclusion`, files exactly one ticket per incident fingerprint, and writes a byte-addressable
+> JSONL audit trail. A read endpoint returns the conclusion and the ticket for an incident.
+> [`SPEC.md`](SPEC.md) has the exact commands.
+>
+> **What it is not yet:** triage is deterministic, derived from the alert's own data, not an LLM
+> investigation — it reaches `needs_human` or `inconclusive` and never claims a root cause, because
+> it has no metric history or logs to reason over. Datadog is the only source with a normalizer.
+> There is no Slack receipt and no Linear adapter. `prod` deliberately refuses to boot until real
+> Auth/Governance/Platform adapters exist. Commands are published as runnable only after their
 > milestone has been implemented and verified.
 
 ## One source of truth

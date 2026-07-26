@@ -1,6 +1,6 @@
 # ADR-0010: FastMCP middleware as the governance seam, with defense-in-depth
 
-**Status:** Accepted · 2026-07-10 · **Level:** L2
+**Status:** Accepted · 2026-07-10 · **Level:** L2 · **Amended by** [ADR-0017](0017-mcp-domain-single-gateway.md)
 
 ## Context
 Every tool call must pass a tier check (read = free, privileged = approval-gated). Research
@@ -12,6 +12,10 @@ gateways (IBM ContextForge, Lasso, mcp-guardian) are all standalone proxy servic
 FastMCP 3.x (version-pinned) is both MCP client and our-servers runtime; a custom
 middleware reads the tool→tier registry and gates privileged calls. Tier enforcement is
 **duplicated in our tool executor** — the third-party hook is never the only check.
+
+Fronting this seam with a standalone proxy was proposed and deferred
+([ADR-0021](0021-agentgateway-proxy.md)), so the middleware plus the executor re-check is the
+whole of v1 tool governance.
 
 ## Options considered
 1. **FastMCP middleware + redundant executor check (chosen).**
