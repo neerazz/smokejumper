@@ -1,6 +1,6 @@
 # ADR-0017: One MCP domain — single gateway, single tier manifest, governed federation
 
-**Status:** Accepted · 2026-07-25 · **Level:** L2 · **Amends** [ADR-0010](0010-fastmcp-middleware-governance.md) (extends its scope; does not supersede)
+**Status:** Accepted · 2026-07-25 · **Level:** L2 · **Amends** [ADR-0010](0010-fastmcp-middleware-governance.md) · **Amended by** [ADR-0021](0021-agentgateway-proxy.md) (one application domain/manifest remains; agentgateway becomes the network data plane)
 
 ## Context
 MCP concerns were split across two packages: `hub/` owned the tool gateway, manifest, tiers,
@@ -31,6 +31,10 @@ Collapse everything MCP into one domain, `src/smokejumper/mcp/`:
   same gateway and the same manifest.
 
 `hub/` is deleted. `knowledge/` federates by calling `mcp`.
+
+ADR-0021 later inserts a standalone proxy without restoring the old split: `mcp/` still owns
+the only application MCP client and manifest, but that client talks to agentgateway's virtual
+MCP endpoint instead of connecting directly to local/federated targets.
 
 ## Options considered
 1. **One domain under `src/`, central manifest (chosen).**

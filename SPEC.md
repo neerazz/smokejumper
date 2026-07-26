@@ -9,7 +9,7 @@
 > updated 2026-07-25.** The five open decisions were resolved by Neeraj (see §10); no
 > unresolved `⚑` remain. The 2026-07-25 pass added the local observability stack (§2c),
 > per-environment configuration (§2d), consolidated MCP into one domain (§5.5), OTel/Phoenix,
-> and the prompt registry—decisions 11–15. Every significant decision is recorded with its
+> the prompt registry, and an agentgateway LLM/MCP proxy (§5.5)—decisions 11–16. Every significant decision is recorded with its
 > alternatives and accepted trade-offs in [docs/adr/](docs/adr/README.md).
 
 ## 0. Documentation contract
@@ -60,12 +60,13 @@ horizontal scaling, UI beyond Slack.
 | Language | Python 3.12+ | ecosystem; team lane |
 | API/webhooks | FastAPI + uvicorn | standard, async |
 | Agent runtime | LangGraph + `langgraph-checkpoint-postgres` 3.x (**must set `LANGGRAPH_STRICT_MSGPACK=true`** — CVE-2026-28277 deserialization hardening). Supervisor topology is **copied as a pattern** (tool-calling supervisor per LangChain's guide), NOT a dependency on `langgraph-supervisor` — its maintainers steer users away from it | durability via Postgres checkpointer is enough for v1; Temporal deferred |
-| MCP layer | FastMCP 3.x (Apache-2.0, **version-pinned**) for client + own servers + governance middleware; `langchain-mcp-adapters` loads MCP tools into LangGraph. Official `mcp` SDK v2 is beta — do not build on it yet | verified 2026-07-10; see §2b |
+| Agent traffic proxy | **agentgateway v1.3.1** (Apache-2.0, exact binary/image digest pinned) as the sidecar data plane for LLM and MCP traffic; v1.4 beta is not adopted | virtual models, MCP multiplexing/CEL authz, backend credentials/TLS, rate limits, Prometheus, and OTLP without reimplementing a proxy |
+| MCP layer | FastMCP 3.x (version-pinned) implements our servers and the application client/policy seam; the client connects only to agentgateway's virtual MCP endpoint. `langchain-mcp-adapters` loads that governed toolset into LangGraph | FastMCP owns application semantics; agentgateway owns the network data plane; see ADR-0010/0017/0021 |
 | Queue | Redis Streams (consumer groups) | burst absorption, replayable inbox |
 | Persistence | SQLAlchemy 2 async + psycopg 3 + Alembic over **one Postgres 16** + pgvector | application state, vectors, graph edges, checkpoints, and the JSONL run/file-offset index share one DB; audit events themselves stay in JSONL |
 | Knowledge graph | Postgres edge tables, bi-temporal (valid_at / recorded_at, Graphiti-style) | facts change; never lose what we believed at decision time |
 | Memory extraction | LangMem-style extraction in Distiller; **distill, don't append** | append-everything degrades retrieval |
-| LLM | **Swappable by config, zero code**: `ModelProvider` port over LangChain `init_chat_model` provider strings (`anthropic:*`, `openai:*`, `google_genai:*`, `ollama:*`, …), configured **per role** (`worker`, `synthesis`) through `config/<env>.yaml` or env overrides. Ships with Anthropic defaults (claude-sonnet-5 workers, claude-opus-4-8 synthesis); switching to Codex/GPT, Gemini, or a local model is an edit to two config values | hard requirement: any provider, swappable at any time; no provider import outside `ports/model.py` |
+| LLM + embeddings | `ModelProvider` calls stable agentgateway virtual model names (`smokejumper-worker`, `smokejumper-synthesis`, `smokejumper-embedding`) through its internal listeners. Provider/model/failover changes are gateway config, zero application code | upstream credentials and provider protocols stay out of the app; `ports/model.py` remains the only model-call seam and records B8 |
 | Packaging | `uv` + `pyproject.toml`, src layout, package name `smokejumper` | PyPI name is free |
 | Quality gates | ruff + pyright + pytest; CI = GitHub Actions | |
 
@@ -107,7 +108,7 @@ need tested anyway.
 
 | Purpose | Service | Profile | Notes |
 |---|---|---|---|
-| Core runtime | postgres+pgvector · redis · app | *(default)* | `docker compose up` — one-command onboarding unchanged |
+| Core runtime | postgres+pgvector · redis · agentgateway · app | *(default)* | `docker compose up` — one command, four services |
 | Alert source | prometheus + alertmanager | `lab` | Alertmanager sends no HMAC ⇒ network allowlist (§5.1) |
 | Alert source + dashboards | grafana (OSS) | `lab` | Grafana alerting → Receiver webhook; fully local |
 | Log backend | loki + promtail | `lab` | **chosen over ELK**: ~200MB vs 4GB+ heap; Grafana-native |
@@ -121,9 +122,9 @@ These services fill **two distinct roles**, and the distinction is load-bearing:
    `log search` → Loki. Both tools were previously named with **no backend behind them**;
    this section is what makes specialist investigation real instead of stubbed.
 
-Compose profiles keep the default `docker compose up` at three services — ADR-0002 banks
-"a docker-compose a newcomer can run in one command" as a benefit, and a 10-service default
-would quietly spend it. Full `lab` profile lands near 1.2GB resident.
+Compose profiles keep the default `docker compose up` at four services. ADR-0021 intentionally
+spends one extra service for the LLM/MCP data plane while preserving one-command onboarding;
+the observability lab still stays out of the default. Full `lab` profile lands near 1.2GB resident.
 
 These services are **local only**. The same tools point at dev/prod backends via environment
 config (§2d), and the `lab`/`fixtures` profiles are refused outside `SMOKEJUMPER_ENV=local`.
@@ -175,6 +176,7 @@ injected by the platform's secret manager. `config/` stays diffable and safe to 
 | Ticketing (§5.6) | dry-run / fixture | test Linear team | prod Linear team |
 | Slack | dev workspace | dev workspace | real workspace |
 | Federated MCP (§5.5) | stub descriptor | dev endpoint | prod endpoint |
+| agentgateway | sidecar; internal listeners; loopback-only admin UI | sidecar; admin UI unpublished | sidecar or Kubernetes data plane; admin UI unpublished |
 | Ports (§5.10) | stubs allowed | stubs warn | **security-relevant stubs forbidden** |
 
 ### Environment-gated safety rules (enforced at boot, not documented-and-hoped)
@@ -205,9 +207,10 @@ is the point of keeping environment selection in the settings object rather than
 ### Observability — `obs` compose profile (ADR-0019)
 Two layers, deliberately separated so the backend is never load-bearing:
 
-1. **Instrumentation is OpenTelemetry** (OpenInference semantic conventions), emitted from
-   inside `ports/model.py` and the MCP gateway — the two places every model call and tool call
-   already funnel through. No instrumentation code in callers.
+1. **Instrumentation is OpenTelemetry** (OpenInference semantic conventions): application
+   semantic spans originate in `ports/model.py` and the MCP executor; agentgateway adds
+   provider/MCP network spans, token/cost metrics, and backend latency. Trace context is propagated
+   across both layers; no instrumentation code lives in callers.
 2. **The backend is a config value.** Default: **Arize Phoenix**, a single container behind the
    `obs` profile. **Langfuse** is a supported swap — repoint the OTLP exporter, change no code.
 
@@ -257,7 +260,7 @@ the same mistake ADR-0012 refused for the audit log.
 ```
 smokejumper/
 ├── pyproject.toml
-├── docker-compose.yml          # default: postgres+pgvector, redis, app
+├── docker-compose.yml          # default: postgres+pgvector, redis, agentgateway, app
 │                               # profiles: lab (§2c), fixtures (§2c)
 ├── docker-compose.override.yml  # auto-loaded local tweaks — git-ignored
 ├── docker-compose.dev.yml      # explicit overlay: -f base -f dev
@@ -268,6 +271,8 @@ smokejumper/
 │   ├── dev.yaml                #   dev endpoints, cheap models, tiny ceiling
 │   └── prod.yaml               #   real endpoints; stubs forbidden at boot
 ├── compose/                    # provisioning for the lab profile — config, not code
+│   ├── agentgateway/           # pinned proxy + generated read-only configuration
+│   │   └── config.generated.yaml # emitted from MCP manifest/descriptors + model config
 │   ├── prometheus/             # scrape config + alert rules that fire at the Receiver
 │   ├── alertmanager/           # webhook receiver config
 │   ├── grafana/                # provisioned datasources + alert rules
@@ -280,11 +285,12 @@ smokejumper/
 │   ├── intelligence/           # LangGraph graph, supervisor, registry loader, sub-agent runner
 │   ├── knowledge/              # facade, vector store, graph store, recipes (federates via mcp/)
 │   ├── mcp/                    # THE MCP domain — one client, one governance seam (§5.5)
-│   │   ├── gateway.py          #   single FastMCP client + governance middleware
+│   │   ├── gateway.py          #   only app MCP client → agentgateway virtual MCP endpoint
 │   │   ├── tiers.py            #   tier enforcement + redundant executor check
 │   │   ├── approvals.py        #   approval broker (B5 token lifecycle)
 │   │   ├── manifest.yaml       #   SINGLE tool→tier registry — ours AND federated
-│   │   ├── servers/            #   servers we implement, in-process
+│   │   ├── generate_proxy.py   #   emits agentgateway CEL/backend config; CI drift-checks it
+│   │   ├── servers/            #   FastMCP servers mounted at app-internal Streamable HTTP
 │   │   │   ├── metrics/        #     → Prometheus
 │   │   │   ├── logs/           #     → Loki
 │   │   │   ├── knowledge/      #     → knowledge.search / knowledge.expand
@@ -311,9 +317,10 @@ smokejumper/
 
 Dependency rule: `contracts` imports nothing internal; everything imports `contracts`;
 `intelligence` never imports `actions` (only emits B6); `actions` never imports an LLM client.
-**`mcp` is the only package that speaks MCP** — no other package constructs an MCP client, so
-every tool call (ours or federated) crosses exactly one governance seam; `knowledge`
-federates by calling `mcp`, never by opening its own connection.
+**`mcp` is the only application package that speaks MCP**—no other package constructs a client.
+Its client calls agentgateway's virtual MCP listener; agentgateway reaches local FastMCP targets
+and remote targets. Every call crosses the manifest/executor check and the proxy CEL filter;
+`knowledge` federates by calling `mcp`, never by opening its own connection.
 
 ## 4. Boundary contracts (B1–B11)
 
@@ -415,35 +422,68 @@ with every payload.
   LightRAG can replace the hand-rolled store later via a pinned-version spike without
   touching callers.
 
-### 5.5 MCP domain — one gateway, one manifest
-All MCP concerns live in `src/smokejumper/mcp/` (§3). It replaces the former `hub/` package
-and absorbs the federated client that previously sat in `knowledge/`. **One client, one
-governance seam, one tier registry** — see ADR-0017.
+### 5.5 MCP domain + agentgateway data plane — one manifest, layered enforcement
 
-- **Single tier manifest.** `mcp/manifest.yaml` assigns every tool a tier — servers we run
-  *and* federated ones. Deliberately NOT co-located with each server: a tool's tier must not
-  be declarable next to the tool, or a new server can self-declare `read` on a destructive
-  capability and no reviewer sees the security change. One manifest ⇒ every tier change is a
-  reviewable one-file diff.
-- **v1 read tools, with real backends** (previously named but unbacked):
-  `metric query` → Prometheus · `log search` → Loki (both from the `lab` profile, §2c) ·
-  `knowledge.search` / `knowledge.expand` → the Knowledge façade (§5.4) · `Linear read` ·
-  `recipe read` · `platform asset query` (stub).
-- **Privileged tier ships EMPTY.** Gating machinery (suspend → B5 → token → execute) is built
-  and tested against `mcp/servers/testing/demo_destructive_noop`, enabled only in tests.
-- **Our servers run in-process.** FastMCP supports standalone processes; v1 does not use them
-  — in-process keeps the single-service deployment ADR-0001 treats as decisive. Compose gains
-  services for the *backends* (Prometheus, Loki), never for our servers.
-- **Federation is consumption, not implementation.** `mcp/federated/descriptors/*.yaml`
-  declare external servers (endpoint, auth, tool allowlist); `loader.py` imports their
-  toolsets through the same gateway and the same manifest. Descriptors are config, not code.
-- **Implementation stance (researched):** built on FastMCP 3.x (pinned) — its
-  `on_call_tool(context, call_next)` middleware reads the tier registry and blocks/gates by
-  raising `ToolError`; `langchain-mcp-adapters` exposes the governed toolset to LangGraph.
-  Dedicated MCP gateways (IBM ContextForge, Lasso, mcp-guardian) were evaluated and rejected
-  for v1 — all are standalone proxy services, not embeddable libraries. **Defense in depth:**
-  tier enforcement is duplicated in our tool executor so the security boundary never lives
-  solely in third-party middleware.
+All application MCP concerns live in `src/smokejumper/mcp/`; agentgateway is the standalone
+network data plane (ADR-0021). FastMCP and agentgateway have different jobs:
+
+- **FastMCP** implements Smokejumper's own servers and the application-side client/policy seam.
+- **agentgateway** proxies LLM/MCP traffic, multiplexes targets, injects backend credentials,
+  terminates backend TLS, applies generated CEL authorization, rate-limits, and emits telemetry.
+- **Smokejumper** remains authoritative for semantic tiers, LangGraph interrupts, Slack approval,
+  one-time token consumption, B8 audit, and deterministic replay.
+
+| Traffic | Application entry | agentgateway listener | Proxy behavior | Authoritative app invariant |
+|---|---|---|---|---|
+| Worker/synthesis LLM | `ModelProvider` | internal `:4000` | virtual-model provider routing/failover, upstream key, tokens/cost, OTLP | prompt ref/hash, response recording, per-run budget |
+| Embeddings | `ModelProvider.embed` | internal `:4000/v1/embeddings` | virtual embedding model + upstream key | configured dimension must match pgvector schema |
+| Local tools | `mcp/gateway.py` | internal `:3000` | virtual MCP target → app-internal FastMCP Streamable HTTP | manifest tier + executor check |
+| Federated tools | `mcp/gateway.py` | internal `:3000` | multiplexed remote target, target auth/TLS, prefixed tool name | descriptor allowlist + manifest tier + executor check |
+
+**Single semantic manifest.** `mcp/manifest.yaml` assigns every local/federated tool a tier.
+`generate_proxy.py` combines it with model config and federated descriptors to emit the
+read-only `compose/agentgateway/config.generated.yaml`. CI regenerates and requires byte equality;
+no human maintains a second policy file. The local admin UI is inspect-only and may not become a
+configuration source.
+
+**Layered enforcement.** Generated agentgateway `mcpAuthorization` CEL rules filter disallowed
+tools from discovery and deny calls. The application executor independently re-checks the tier.
+Privileged calls then enter B5. The production privileged tier ships empty; only
+`demo_destructive_noop` exists under test configuration.
+
+**v1 read targets:** `metric.query` → Prometheus · `log.search` → Loki ·
+`knowledge.search` / `knowledge.expand` → Knowledge · `change.list` → fixture/local deployment
+history through `PlatformPort` · Linear read · recipe read · platform asset query. This gives the
+Change Auditor a real, bounded source instead of an unnamed backend.
+
+**Network/audit rules.** App packages must not connect directly to provider or remote MCP hosts.
+Provider/MCP secrets exist only in agentgateway's environment. LLM/MCP listeners are internal;
+admin UI is loopback-only locally and unpublished elsewhere; Prometheus scrapes internal metrics.
+Omit agentgateway `config.database` and leave raw prompt/completion capture disabled, so its
+analytics DB cannot become a second audit source. Redacted OTLP spans are read-side telemetry;
+JSONL remains authoritative.
+
+A generated configuration has this shape (values and CEL rules come from canonical sources):
+
+```yaml
+# generated — do not edit
+config:
+  tracing:
+    otlpEndpoint: http://phoenix:4317
+llm:
+  models: []          # concrete provider targets; credentials are env references
+  virtualModels: []   # smokejumper-worker / synthesis / embedding
+binds:
+  - port: 3000
+    listeners:
+      - routes:
+          - policies:
+              mcpAuthorization:
+                rules: []  # generated from manifest.yaml
+            backends:
+              - mcp:
+                  targets: []  # local FastMCP + federated descriptors
+```
 
 ### 5.6 Actions — deterministic, no LLM
 - Input: Conclusion (B6). Fingerprint rules: open ticket exists for fingerprint ⇒ update
@@ -461,10 +501,12 @@ governance seam, one tier registry** — see ADR-0017.
 ### 5.7 Governor + Scheduler
 - Per-run caps: max 12 graph iterations, 200k tokens, 10 min wall clock — breach ⇒ synthesize
   `inconclusive` Conclusion with partial findings (never silent death). Call-COUNT caps reuse
-  LangChain v1 `ModelCallLimitMiddleware`/`ToolCallLimitMiddleware`; the token/$ spend ledger
-  (from `usage_metadata` into Postgres) and RPM/TPM throttle are hand-written — verified no
-  Python OSS equivalent exists.
-- Circuit breakers: 3 consecutive provider failures ⇒ pause consumption 60s. Storm brake:
+  LangChain v1 `ModelCallLimitMiddleware`/`ToolCallLimitMiddleware`; Smokejumper's Decimal-USD
+  ledger is authoritative per run and fails closed for an unpriced prod model. agentgateway
+  provides an outer gateway-wide token rate limit plus provider token/cost metrics; it does not
+  replace the run ledger because its local limiter is not run-scoped.
+- Circuit breakers: 3 consecutive agentgateway/provider failures ⇒ pause consumption 60s and
+  synthesize `needs_human` for open runs rather than bypassing the proxy. Storm brake:
   queue depth > 25 ⇒ only `critical|high` dequeued.
 - Scheduler (APScheduler): registry sync, scheduled investigations from recipes, approval-expiry sweeper.
 
@@ -479,6 +521,8 @@ governance seam, one tier registry** — see ADR-0017.
   network stream (e.g. SSE) — write path stays file-first either way.
 - Postgres keeps only a lightweight `runs` index (run_id → fingerprint, status, log file +
   byte offsets) so replay can locate a run's events without scanning every file.
+- agentgateway's `config.database` is omitted and raw prompt/completion capture is disabled;
+  its metrics/traces are read-side telemetry, never a second recorder.
 - Failure to write the file sink is itself recorded to stderr and increments a health
   counter surfaced by the Governor.
 - Replay harness: `smokejumper replay <run_id>` re-executes a recorded run with the model
@@ -498,7 +542,7 @@ governance seam, one tier registry** — see ADR-0017.
 | `AuthPort` | host-supplied credential/signature verifier | `AllowAll` | `AllowAll` forbidden |
 | `GovernancePort` | host-supplied policy identity | `NoopGovernance` | `NoopGovernance` forbidden |
 | `TenancyPort` | `SingleTenant` | same | allowed: single tenancy is the v1 contract, not a stub |
-| `ModelProvider` | configured LLM adapter | recorded/fake model | fake forbidden |
+| `ModelProvider` | agentgateway virtual LLM/embedding client | recorded/fake model | fake forbidden; direct provider egress forbidden |
 | `PlatformPort` | host-supplied platform adapter | `FixturePlatform` | fixture forbidden |
 | `ChannelAdapter` | Slack Socket Mode | fake channel | fake forbidden when enabled |
 | `TicketingPort` | Linear GraphQL | dry-run/fixture adapter | fixture forbidden when enabled |
@@ -517,8 +561,9 @@ not close.
 
 ### 6.1 Alert triage (happy path)
 Grafana webhook → Receiver verifies+normalizes → dedupe miss → enqueue → supervisor intake →
-retrieve (bundle: 2 similar past cases + 1 recipe) → plan selects specialists → parallel
-Assignments → Findings back → aggregate → synthesize Conclusion(root_caused, 0.82) →
+retrieve (local/federated tools pass manifest → agentgateway virtual MCP) → plan selects
+specialists → parallel Assignments → ModelProvider calls agentgateway virtual models → Findings
+back → aggregate → synthesize Conclusion(root_caused, 0.82) →
 Actions: create Linear ticket SMOKE-123 + Slack receipt with evidence links → recorder has
 the full trace → run closed.
 
@@ -566,12 +611,12 @@ Postgres) · `approvals` (B5) · `tickets` (fingerprint ↔ TicketRef map, provi
 
 | # | Deliverable | Exit check |
 |---|---|---|
-| M0 | Repo skeleton, contracts, CI, docker-compose (default profile), `config/` layering (§2d), stub ports | `pytest` green; compose boots; `SMOKEJUMPER_ENV=prod` fails closed on stub ports |
+| M0 | Repo skeleton, contracts, CI, four-service default Compose stack, `config/` layering (§2d), stub ports, pinned agentgateway | `pytest` green; app→agentgateway proxy smoke passes; prod fails closed on security stubs/direct egress |
 | M1 | Receiver + queue + recorder core + `lab`/`fixtures` profiles (§2c) | golden webhooks → normalized events in DB, storm test passes; a real Grafana/Alertmanager alert reaches the queue |
-| M2 | Supervisor + ONE specialist + Actions (ticket+receipt) | `evals/case-01.json` traverses queue → Metrics Analyst → B6 → fixture ticket/receipt exactly once; credentialed Linear/Slack is a release smoke test |
-| M3 | Knowledge façade (vectors+graph+recipes) wired into retrieve | bundle appears in trace; precedent case cited |
+| M2 | Supervisor + ONE specialist + Actions (ticket+receipt) | `evals/case-01.json` traverses queue → Metrics Analyst → agentgateway virtual LLM → B6 → fixture ticket/receipt exactly once; credentialed Linear/Slack is a release smoke test |
+| M3 | Knowledge façade (vectors+graph+recipes) wired into retrieve | embedding call uses agentgateway virtual model; bundle appears in trace; precedent case cited |
 | M4 | Parallel specialists + budgets + Governor | 3 agents in parallel; budget-breach test passes |
-| M5 | MCP tiers + approval round-trip | demo noop tool gated end-to-end in test; federated descriptor loads through the same manifest |
+| M5 | FastMCP servers + agentgateway virtual MCP + tiers/approval | generated proxy config is fresh; CEL filter + executor independently deny; demo noop approval and federated descriptor pass |
 | M6 | Replay/eval harness + Distiller CLI + `obs` profile (§2e) + docs | acceptance suite green; the canonical quickstart in this specification works; a run's spans land in Phoenix |
 
 Build order is strict; each milestone lands as a reviewed PR.
@@ -613,18 +658,20 @@ Added 2026-07-25 (architecture update):
 11. **Local observability stack in compose profiles** (§2c, ADR-0016) — Prometheus+Alertmanager,
     Grafana, Loki+Promtail and a faultbox run under a `lab` profile so alert sources and tool
     backends are real locally; Datadog/PagerDuty are SaaS and get a `fixtures` replayer
-    instead. Loki over ELK on footprint. Default `docker compose up` stays three services.
-12. **One MCP domain** (§5.5, ADR-0017) — `hub/` and the `knowledge/` federated client
+    instead. Loki over ELK on footprint. The original default was three services; decision 16
+    later adds agentgateway as the fourth while preserving one-command startup.
+12. **One application MCP domain** (§5.5, ADR-0017; amended by ADR-0021) — `hub/` and the `knowledge/` federated client
     collapse into `src/smokejumper/mcp/`: one client, one governance seam, one central tier
     manifest, our servers in-process, federated servers as descriptors. This closes a path
     where knowledge federation reached an external server without a tier check.
 13. **Layered per-environment config** (§2d, ADR-0018) — `local`/`dev`/`prod` selected by
     `SMOKEJUMPER_ENV`, layered `base.yaml` → `<env>.yaml` → env vars → flags into one
     validated settings object; secrets by reference only. Deliberately distinct from compose
-    profiles, which select services rather than values. Prod fails closed on stub ports and on
+    profiles, which select services rather than values. Prod fails closed on security-relevant stubs and on
     a missing spend ceiling, and the `lab`/`fixtures` profiles are refused outside `local`.
-14. **Observability via an OTel seam** (§2e, ADR-0019) — instrument once with
-    OpenTelemetry/OpenInference inside the model port and MCP gateway; Phoenix is the default
+14. **Observability via an OTel seam** (§2e, ADR-0019; extended by ADR-0021) — instrument
+    application semantics in the model port/MCP executor and proxy traffic in agentgateway;
+    Phoenix is the default
     backend behind an `obs` profile (single container, eval-first) with Langfuse as a
     config-only swap. Amends ADR-0012's "no trace UI in v1" while keeping JSONL authoritative.
     Phoenix is ELv2 — source-available, not OSI. LangSmith rejected: proprietary + data egress.
@@ -632,6 +679,11 @@ Added 2026-07-25 (architecture update):
     truth, versions are immutable, the registry references instead of inlining, and every
     `llm_call` records `prompt_ref` + `prompt_sha256` so regressions are attributable and
     replay can assert prompt identity. Platform prompt registries rejected as the store.
+16. **agentgateway is the LLM/MCP proxy** (§5.5, ADR-0021) — stable v1.3.1 is a core sidecar.
+    ModelProvider uses virtual models; the only app MCP client uses a virtual MCP endpoint;
+    FastMCP still implements local servers; the manifest generates CEL policy; the executor and
+    B5 approval remain authoritative. Provider/MCP credentials live only in the sidecar; its
+    request database and raw prompt capture are disabled so JSONL remains the audit source.
 
 ## 11. Build prerequisites and operator inputs
 
@@ -650,28 +702,49 @@ M2, when a real model call, Slack receipt, and Linear issue must cross the syste
 | Disk | at least 10 GiB free for images, volumes, logs, and eval fixtures | M0 | `df -h .` |
 | Node + npx | only for regenerating the Mermaid SVG; not an app runtime dependency | docs only | `node --version && npx --version` |
 
-The application container listens on `8000` and exposes `GET /healthz`. Compose service names
-and container ports are stable; host ports are overridable so a developer does not have to
-kill unrelated local services:
+### 11.2 Network port contract
 
-| Service | Container port | Default host port | Local override |
-|---|---:|---:|---|
-| app | 8000 | 8000 | `APP_HOST_PORT` |
-| postgres | 5432 | 5432 | `POSTGRES_HOST_PORT` |
-| redis | 6379 | 6379 | `REDIS_HOST_PORT` |
-| prometheus | 9090 | 9090 | `PROMETHEUS_HOST_PORT` |
-| alertmanager | 9093 | 9093 | `ALERTMANAGER_HOST_PORT` |
-| grafana | 3000 | 3000 | `GRAFANA_HOST_PORT` |
-| loki | 3100 | 3100 | `LOKI_HOST_PORT` |
-| faultbox | 8080 | 8080 | `FAULTBOX_HOST_PORT` |
-| phoenix UI | 6006 | 6006 | `PHOENIX_HOST_PORT` |
-| OTLP gRPC | 4317 | 4317 | `OTLP_GRPC_HOST_PORT` |
+The table below is the **only normative port inventory**. Compose, health checks, deployment
+manifests, and the port preflight test must match it. “Internal” means reachable only on a
+named container/deployment network and never published on a host interface.
 
-Host-port overrides belong in the untracked local `.env`; service-to-service URLs always use
-the stable Compose service name and container port. `.env.example` contains names and safe
-defaults only—never tokens.
+| Component / listener | Bind inside deployment | Protocol / probe | Local host publication | dev/prod exposure | Consumer |
+|---|---|---|---|---|---|
+| Smokejumper API | `app:8000` | HTTP; `GET /healthz` | `127.0.0.1:${APP_HOST_PORT:-8000}:8000` | ingress/LB `443 → 8000`; only webhook/API routes | webhook sources, operator |
+| FastMCP target | `app:8100` | Streamable HTTP at `/mcp` | none | internal only | agentgateway only |
+| Postgres | `postgres:5432` | PostgreSQL; `pg_isready` | `127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432` | private data network only | app |
+| Redis | `redis:6379` | RESP; `PING` | `127.0.0.1:${REDIS_HOST_PORT:-6379}:6379` | private data network only | app |
+| agentgateway virtual MCP | `agentgateway:3000` | HTTP/MCP initialize + session | none | internal only | app MCP client |
+| agentgateway virtual LLM | `agentgateway:4000` | OpenAI-compatible HTTP; `/v1/models` | none | internal only | `ModelProvider` |
+| agentgateway admin | `agentgateway:15000` | HTTP UI at `/ui/` | `127.0.0.1:${AGENTGATEWAY_ADMIN_HOST_PORT:-15000}:15000` in local only | `config.adminAddr: off` | local operator only |
+| agentgateway metrics | `agentgateway:15020` | HTTP `GET /metrics` (also `/stats/prometheus`) | none | internal observability network only | Prometheus |
+| agentgateway readiness | `agentgateway:15021` | HTTP `GET /healthz/ready` | none | internal health probe only | Compose/orchestrator |
+| Prometheus | `prometheus:9090` | HTTP | `127.0.0.1:${PROMETHEUS_HOST_PORT:-9090}:9090` | private observability network | operator, metrics tool |
+| Alertmanager | `alertmanager:9093` | HTTP | `127.0.0.1:${ALERTMANAGER_HOST_PORT:-9093}:9093` | private observability network | operator, Receiver |
+| Grafana | `grafana:3000` | HTTP | `127.0.0.1:${GRAFANA_HOST_PORT:-3000}:3000` | authenticated internal UI | operator |
+| Loki | `loki:3100` | HTTP | `127.0.0.1:${LOKI_HOST_PORT:-3100}:3100` | private observability network | log tool |
+| Promtail | no host listener | outbound push to Loki | none | internal only | Loki |
+| faultbox | `faultbox:8080` | HTTP | `127.0.0.1:${FAULTBOX_HOST_PORT:-8080}:8080` | forbidden outside `local` | lab operator |
+| replayer | no listener | outbound HTTP to app | none | forbidden outside `local` | Receiver |
+| Phoenix UI | `phoenix:6006` | HTTP | `127.0.0.1:${PHOENIX_HOST_PORT:-6006}:6006` | authenticated internal UI if enabled | operator |
+| Phoenix OTLP | `phoenix:4317` | OTLP/gRPC | `127.0.0.1:${OTLP_GRPC_HOST_PORT:-4317}:4317` only when local tooling needs it | internal observability network | app, agentgateway |
+| External LLM/MCP | remote `443` | HTTPS with certificate verification | outbound only | egress allowed from agentgateway only | provider/federated targets |
+| Slack/Linear | remote `443` | HTTPS/WSS | outbound only | egress allowed from app | Channel/Ticketing adapters |
 
-### 11.2 Accounts, credentials, and identifiers
+Agentgateway v1.3.1 defaults matter: simplified MCP and LLM listeners default to `3000` and
+`4000`; admin defaults to localhost `15000`; metrics and readiness default to wildcard binds on
+`15020` and `15021`. Smokejumper therefore sets every management address explicitly. Local admin
+uses `0.0.0.0:15000` *inside the container* solely so Docker can map it to host loopback; dev/prod
+set it to `off`. Metrics/readiness are never host-published. MCP uses `failureMode: failClosed`.
+
+All host-published local ports bind to `127.0.0.1`, never `0.0.0.0`. Overrides belong in the
+untracked local `.env`; service-to-service URLs always use stable service names and container
+ports. `smokejumper doctor ports` checks only the profiles being requested, names the owning
+service for every collision, and prints the exact override variable. On this workstation,
+Grafana `3000` and Phoenix `6006` currently require overrides; agentgateway MCP `3000` does not
+collide because it is not host-published.
+
+### 11.3 Accounts, credentials, and identifiers
 
 Secret values are injected at runtime and are never committed. Tests use fakes or fixture
 secrets. A missing optional integration disables that adapter; a missing credential for an
@@ -679,7 +752,9 @@ enabled adapter fails boot with the variable name, never during an incident.
 
 | Input | Exact configuration surface | Needed by | Owner action / local fallback |
 |---|---|---:|---|
-| One LLM provider | Standard provider key such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_API_KEY`; role strings in `SMOKEJUMPER__MODEL__WORKER` and `SMOKEJUMPER__MODEL__SYNTHESIS` | M2 | Choose one live provider. Tests use recorded responses; a local Ollama role is allowed. |
+| One LLM provider | Provider secret mounted only in agentgateway and referenced as `llm.models[].params.apiKey.file`; app role strings are the virtual names in `SMOKEJUMPER__MODEL__WORKER` and `SMOKEJUMPER__MODEL__SYNTHESIS` | M2 | Choose one live provider. Tests use recorded responses; Ollama is supported through the proxy. |
+| Gateway client key | one generated 256-bit secret mounted at `AGENTGATEWAY_CLIENT_KEY_FILE` and `SMOKEJUMPER__GATEWAY__API_KEY_FILE`; runtime config uses strict `apiKey` policy on both listeners | M0 | `smokejumper bootstrap-secrets` generates it locally; secret manager owns it in dev/prod. No owner choice is needed. |
+| Embedding model | gateway concrete provider/model plus `SMOKEJUMPER__EMBEDDING__DIMENSION` | M3 | Choose before the pgvector migration; dimension is immutable without a migration. Recommended default: a provider-backed 1536-d model if that provider is already selected. |
 | Spend ceiling | `SMOKEJUMPER__BUDGET__MAX_USD_PER_RUN` | M2 | Explicit in every environment. Local default: `1.00`; dev default: `2.00`; prod has no default and fails closed. |
 | Slack bot token | `SLACK_BOT_TOKEN` (`xoxb-…`) | M2 | Create/install one Slack app in the development workspace. |
 | Slack app token | `SLACK_APP_TOKEN` (`xapp-…`, `connections:write`) | M2 | Enable Socket Mode and create the app-level token. No `SLACK_SIGNING_SECRET` is required for the v1 Socket Mode transport. |
@@ -700,15 +775,20 @@ Official setup references used to lock these inputs:
 - Linear GraphQL authentication and team IDs: <https://linear.app/developers/graphql>
 - Docker Compose profiles: <https://docs.docker.com/compose/how-tos/profiles/>
 - Pydantic settings sources: <https://docs.pydantic.dev/latest/concepts/pydantic_settings/>
+- agentgateway configuration: <https://agentgateway.dev/docs/standalone/latest/configuration/overview/>
+- agentgateway virtual MCP and authz: <https://agentgateway.dev/docs/standalone/latest/mcp/connect/virtual/>
+- agentgateway virtual models: <https://agentgateway.dev/docs/standalone/latest/llm/virtual-models/>
 
-### 11.3 Owner checklist—the only inputs an agent cannot manufacture
+### 11.4 Owner checklist—the only inputs an agent cannot manufacture
 
 - [ ] **By M2:** choose the live LLM provider and exact worker/synthesis model strings; provide
-  one provider key through the runtime environment and confirm the local spend ceiling.
+  one provider key to agentgateway and confirm the local spend ceiling.
 - [ ] **By M2:** create the Slack app, enable Socket Mode + interactivity, apply the four bot
   scopes above, install it, invite it to the development channel, and provide the two tokens
   plus channel ID through the runtime environment.
 - [ ] **By M2:** choose the Linear development team; provide a personal API key and team UUID.
+- [ ] **By M3:** confirm the embedding provider/model and vector dimension before the pgvector
+  migration. This is the only remaining schema-shaping owner input.
 - [ ] **Only for dev/prod:** provide managed Postgres/Redis, read-only Prometheus/Loki, live
   webhook secrets/allowlists, and the real implementations selected for security-relevant
   ports.
@@ -716,7 +796,7 @@ Official setup references used to lock these inputs:
 Datadog and PagerDuty accounts, public tunnels, a production secret manager, real privileged
 tools, and a federated MCP server are **not prerequisites for local v1 acceptance**.
 
-### 11.4 Defaults locked for implementation
+### 11.5 Defaults locked for implementation
 
 These low-cost details were previously implicit; they are now explicit so an implementer does
 not have to invent them:
@@ -737,6 +817,13 @@ not have to invent them:
    signing key is required.
 8. Exact third-party versions are not guessed in prose. M0 verifies official compatibility,
    pins them in `pyproject.toml`, and commits `uv.lock`; the lockfile is executable truth.
+9. agentgateway starts at stable v1.3.1 with exact release checksum/image digest. Beta tags are
+   excluded until a compatibility test proves config, LLM, MCP session, CEL authz, and telemetry.
+10. `mcp/manifest.yaml` generates the proxy policy/config; hand-editing generated YAML or saving
+    through the admin UI is prohibited.
+11. agentgateway request-database storage and raw prompt/completion capture are disabled in v1.
+    JSONL owns replay; gateway metrics/redacted traces are read-side only.
+12. The app has no bypass path: proxy outage yields `needs_human`, never direct provider/MCP egress.
 
 ## 12. Executable implementation plan
 
@@ -753,6 +840,7 @@ Run after every packet that changes Python; all must exit 0 before its commit:
 ```bash
 uv run pytest -q
 uv run ruff check .
+uv run ruff format --check .
 uv run pyright
 git diff --check
 ```
@@ -794,22 +882,29 @@ focused RED/GREEN test, full gate output, runtime probe, and any disabled extern
 - RED: local accepts loud stubs; dev warns; prod rejects every security-relevant stub.
 - GREEN: protocols/ABCs plus smallest stubs only. Commit: `feat: add environment-gated ports`.
 
-**M0.5 · App, database migrations, and default Compose stack**
-- Create: `src/smokejumper/app.py`, `src/smokejumper/db.py`, `alembic.ini`, `migrations/`,
-  `docker-compose.yml`, `tests/test_health.py`.
-- RED: `/healthz` and database readiness fail before app/services exist.
-- GREEN: app + Postgres 16/pgvector + Redis start with health checks; schema migration table
-  exists; app reports dependency health without leaking credentials. Commit:
-  `feat: boot core compose stack`.
+**M0.5 · App, persistence, agentgateway, and default Compose stack**
+- Create: `src/smokejumper/app.py`, `src/smokejumper/persistence/database.py`, `alembic.ini`,
+  `migrations/`, `docker-compose.yml`, `compose/agentgateway/config.generated.yaml`,
+  `src/smokejumper/mcp/generate_proxy.py`, `tests/test_health.py`,
+  `tests/integration/test_agentgateway_proxy.py`.
+- RED: `/healthz`, migrations, generated-config freshness, app→proxy HTTP, MCP initialize/list,
+  CEL tool filtering, and direct-egress prohibition fail before services/policy exist.
+- GREEN: SQLAlchemy 2 async + psycopg 3 + Alembic boot app + Postgres 16/pgvector + Redis +
+  pinned agentgateway v1.3.1. Config is read-only, `config.database`/prompt capture are absent,
+  LLM/MCP listeners stay internal, and readiness/metrics are healthy. Commit:
+  `feat: boot core stack through agentgateway`.
 
 **M0 exit evidence**
 ```bash
 uv run pytest -q
 uv run ruff check .
+uv run ruff format --check .
 uv run pyright
 docker compose config
 docker compose up -d --build
 curl --fail http://localhost:${APP_HOST_PORT:-8000}/healthz
+docker compose exec app python -c "import urllib.request; urllib.request.urlopen('http://agentgateway:15021/').read()"
+uv run pytest tests/integration/test_agentgateway_proxy.py -q
 docker compose run --rm \
   -e SMOKEJUMPER_ENV=prod \
   -e SMOKEJUMPER__BUDGET__MAX_USD_PER_RUN= \
@@ -842,9 +937,10 @@ lab alert receipt are both retained as evidence.
 1. **Prompt + registry seed:** create immutable `prompts/supervisor/{plan,synthesize}/v1.md`,
    `prompts/agents/metrics-analyst/v1.md`, `prompts/CHANGELOG.md`, and
    `registry/agents/metrics-analyst.yaml`; validate prompt refs and hashes at boot.
-2. **ModelProvider:** implement the LangChain `init_chat_model` seam only in
-   `ports/model.py`; record model, prompt ref/hash, response, usage, latency, and cost. Tests
-   use a fake provider and recorded responses before any live call.
+2. **ModelProvider:** implement the gateway client only in `ports/model.py`; it calls
+   `smokejumper-worker` / `smokejumper-synthesis` on agentgateway's internal listener with the
+   gateway client key. Record model, prompt ref/hash, response, usage, latency, and Decimal cost.
+   Contract tests prove no direct provider URL/key reaches the app; unit tests use recorded responses.
 3. **Single-specialist graph:** implement intake→retrieve(empty bundle)→plan→dispatch one
    Metrics Analyst→aggregate→synthesize B6 with Postgres checkpointing and restart test.
 4. **Slack adapter:** implement async Bolt Socket Mode mention listener, thread receipts, and
@@ -860,8 +956,9 @@ packets remain buildable with fakes.
 
 ### M3—local knowledge and GraphRAG retrieval
 
-1. Add migrations for `episodes`, `kg_nodes`, and `kg_edges` with pgvector and bi-temporal
-   constraints; test current-time and as-believed-at-time queries.
+1. Confirm §11.3's embedding model/dimension, route `ModelProvider.embed` through the
+   `smokejumper-embedding` virtual model, then add migrations for `episodes`, `kg_nodes`, and
+   `kg_edges` with that pgvector dimension and bi-temporal constraints.
 2. Implement `MemoryPort` Postgres adapter: episode similarity, ≤2-hop graph expansion, and
    deterministic invalidation without deleting historical belief.
 3. Implement recipe loading/validation from `recipes/*.yaml` and trigger-tag matching.
@@ -874,7 +971,8 @@ packets remain buildable with fakes.
 ### M4—parallel specialists, budgets, and Governor
 
 1. Add immutable prompts + registry entries for Log Analyst and Change Auditor; keep DB/Code/
-   Precedent agents present but disabled. Validate tool allowlists and budget fields.
+   Precedent agents present but disabled. Change Auditor receives only bounded `change.list`
+   through the local PlatformPort fixture/Git-history target. Validate tool allowlists and budgets.
 2. Dispatch three B11 Assignments concurrently and aggregate findings in registry-stable order;
    prove parallelism with a barrier test, not wall-clock guessing.
 3. Add call-count middleware plus the hand-written token/USD ledger; breach must synthesize an
@@ -884,20 +982,21 @@ packets remain buildable with fakes.
 5. Add APScheduler jobs for registry sync and approval expiry; scheduled investigations remain
    recipe-driven and produce normal B2 events.
 
-### M5—single MCP governance seam and approval round-trip
+### M5—FastMCP targets, agentgateway virtual MCP, and approval round-trip
 
-1. Create `mcp/manifest.yaml` schema and loader; boot fails for unknown tools, duplicate names,
-   absent tiers, or registry tools missing from the central manifest.
-2. Implement FastMCP gateway middleware and a separate executor-tier check; test that bypassing
-   either one alone still cannot execute a privileged tool.
-3. Implement in-process read servers for Prometheus metrics, Loki logs, knowledge search/
-   expansion, Linear read, recipe read, and fixture platform assets with bounded query shapes.
-4. Add `demo_destructive_noop` only under test configuration; production privileged manifest
+1. Create `mcp/manifest.yaml` schema/loader and deterministic proxy generator; boot/CI fails for
+   unknown tools, duplicate names, absent tiers, registry tools missing from the manifest, or
+   generated YAML drift.
+2. Mount bounded FastMCP Streamable HTTP targets for Prometheus metrics, Loki logs, knowledge,
+   `change.list`, Linear read, recipes, and fixture platform assets on the app-internal endpoint.
+3. Configure agentgateway virtual MCP to multiplex local and federated targets with prefixed names,
+   per-target auth/TLS, generated CEL discovery/call filters, timeouts, and redacted OTLP.
+4. Keep the app executor-tier check independent. Prove CEL-only and executor-only bypass attempts
+   each fail, and prove the app cannot reach remote MCP hosts directly.
+5. Add `demo_destructive_noop` only under test configuration; production privileged manifest
    remains empty.
-5. Implement opaque approval-token mint/consume, 30-minute expiry, Slack buttons, LangGraph
+6. Implement opaque approval-token mint/consume, 30-minute expiry, Slack buttons, LangGraph
    interrupt/resume, restart durability, deny, expiry, replay, and double-click race tests.
-6. Implement federated descriptors and loader through the same gateway; prove a descriptor
-   cannot import a tool absent from the central manifest or widen its tier.
 
 ### M6—replay, eval, Distiller, traces, and release proof
 
@@ -907,8 +1006,9 @@ packets remain buildable with fakes.
    reports per-agent hit rate without calling a live model.
 3. Implement manual Distiller CLI: episode and graph candidates commit transactionally; recipe
    candidates land only in `recipes/drafts/` for human promotion.
-4. Add OpenTelemetry/OpenInference instrumentation only at ModelProvider and MCP gateway;
-   configure Phoenix under `obs`; verify JSONL remains complete with Phoenix stopped.
+4. Add application semantic spans at ModelProvider/MCP executor and propagate context through
+   agentgateway's LLM/MCP network spans; configure Phoenix under `obs`. Verify `config.database`
+   and raw body capture remain disabled and JSONL stays complete with Phoenix stopped.
 5. Run the faultbox release case from injected fault through alert, parallel investigation,
    grounded B6, one Linear ticket, Slack receipt, JSONL replay, and matching ground truth.
 6. Replace any remaining “planned” labels in this specification only after their commands work;
