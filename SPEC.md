@@ -580,9 +580,16 @@ no ticket unless asked.
 offsets — the index into the JSONL audit sink; B8 events themselves live in `logs/`, not
 Postgres) · `approvals` (B5) · `tickets` (fingerprint ↔ TicketRef map, provider-tagged) ·
 `episodes` (case embeddings, pgvector, bi-temporal `valid_at`/`recorded_at`) ·
-`checkpoints` (LangGraph) · `schema_migrations` (alembic).
+`checkpoints` (LangGraph) · `alembic_version` (Alembic's own revision ledger — verified against the
+running database; earlier revisions of this section called it `schema_migrations`, which no
+migration has ever created).
 
 `kg_nodes`/`kg_edges` are post-v1 (§5.4, decision 17); no v1 migration creates them.
+
+**Migrations, in order.** `0001_core_tables` creates the `vector` extension, `events`, and `runs`.
+`0002_event_window_closed` adds `events.window_closed_at` and a partial index on the open rows.
+`tests/integration/test_schema_stack.py` derives head from these files and asserts the running
+database is at it, so a migration that did not run is caught rather than assumed.
 
 **Dedupe-window state is its own column.** `events.window_closed_at` is NULL while the window is
 open and carries the recovery timestamp once closed (§5.1). It exists because the alternative —
@@ -1125,9 +1132,9 @@ docker compose down
    stable hash, and the 15-minute window are done and proven under concurrency; `admit()` takes a
    per-fingerprint advisory lock, because the window is time-relative and so cannot be a partial
    unique index. The lock is proven load-bearing, not assumed: removing it and replaying the same
-   25-delivery storm produces **four** rows instead of one. Recovery sets `window_closed_at`
-   (§7) and is idempotent. **Outstanding:** the 20-vs-21 fingerprint storm boundary, the
-   five-minute reset, and the single `kind=storm` enqueue.
+   25-delivery storm produces **four** rows instead of one. Recovery sets `window_closed_at` via
+   migration `0002_event_window_closed` (§7) and is idempotent. **Outstanding:** the 20-vs-21
+   fingerprint storm boundary, the five-minute reset, and the single `kind=storm` enqueue.
 5. **Redis Streams — producer LANDED, consumer outstanding:** `queue/producer.py` XADDs to
    `agentevents` with a bounded `maxlen`. **Outstanding:** the `intelligence` consumer group,
    at-least-once reclaim, `event.id` idempotency, and max in-flight 3. Nothing reads the stream
