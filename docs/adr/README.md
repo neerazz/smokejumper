@@ -11,9 +11,11 @@ accepted, and the condition that should reopen it. Format: lightweight MADR.
 **L2** = component and library design inside a block.
 
 A new ADR is required whenever a decision (a) crosses a boundary contract, (b) adds a runtime
-dependency, or (c) trades away a capability. **Supersede, don't edit:** a changed decision gets
-a new ADR linking back. An ADR that *extends* an earlier one without reversing it says so in its
-header (`Amends` / `Strengthens`).
+dependency, or (c) trades away a capability. **A reversal gets a new record; a narrowing or a
+never-implemented proposal gets a dated status change in place**, stating what changed and why,
+with the original reasoning left readable. The point is the audit trail, not the file count. An
+ADR that *extends* an earlier one without reversing it says so in its header (`Amends` /
+`Strengthens`).
 
 Numbering is chronological, not ordered by importance — read [0015](0015-agent-framework-langgraph.md)
 and [0003](0003-deterministic-edges.md) first if you want the two decisions that shape everything
@@ -81,9 +83,9 @@ Telegram and email are designed-for behind the same port but deliberately unbuil
 Copies Graphiti's published bi-temporal data model (`valid_at`/`invalid_at` +
 `created_at`/`expired_at`) into Postgres tables rather than adopting Graphiti (needs a graph DB,
 violates [0002](0002-one-postgres.md)) or Cognee (dev-tagged releases, recent opt-in temporal
-mode). Gives up free entity extraction, dedup, and graph reasoning — the Distiller now owes all
-three by hand. Keeps a version-stable schema for the component whose correctness *is* the
-product's credibility.
+mode). Gives up free entity extraction, dedup, and graph reasoning. Keeps a version-stable schema
+for the component whose correctness *is* the product's credibility. **Narrowed 2026-07-26:** v1
+ships `episodes` only — edge tables and traversal are post-v1, because nothing in v1 writes edges.
 
 **[0010 · FastMCP middleware as the governance seam, with defense in depth](0010-fastmcp-middleware-governance.md)**
 Tool tiering runs in FastMCP's `on_call_tool` hook — the only embeddable in-process Python
@@ -120,11 +122,13 @@ deploying Keep or Alerta as a sidecar to reuse ~500 lines. We own payload-drift 
 golden fixtures are the tripwire.
 
 **[0016 · Local observability stack behind compose profiles](0016-local-observability-stack.md)**
-Adds a `lab` profile (Prometheus + Alertmanager, Grafana, Loki + Promtail, a faultbox) so alert
-sources and tool backends are real locally — `log search` and `metric query` previously had no
-backend at all. Datadog and PagerDuty are SaaS with no local equivalent, so a `fixtures`
-replayer posts recorded payloads instead. Loki over ELK on footprint (~200MB vs 4GB+). The real
-payoff: an injected fault has known ground truth, making the lab the eval-corpus factory.
+Adds a `lab` profile (Prometheus + Alertmanager, Loki + Promtail, a faultbox) so alert sources and
+tool backends are real locally — `log search` and `metric query` previously had no backend at all.
+Datadog and PagerDuty are SaaS with no local equivalent, so a `fixtures` replayer posts recorded
+payloads instead. Loki over ELK on footprint (~200MB vs 4GB+). The real payoff: an injected fault
+has known ground truth, making the lab the eval-corpus factory. **Amended 2026-07-26:** Grafana
+left the profile — Alertmanager already proves the live-webhook path, and the Grafana payload
+shape is covered by fixtures.
 
 **[0017 · One MCP domain: single gateway, single tier manifest](0017-mcp-domain-single-gateway.md)**
 Collapses `hub/` and the separate federated client in `knowledge/` into one `mcp/` package.
@@ -154,6 +158,16 @@ inlining prompt text, and every `llm_call` records `prompt_ref` + `prompt_sha256
 stamp a regression cannot be traced to a prompt change and replay cannot assert it is running
 the prompt it recorded. Platform prompt registries were rejected as the store for the same
 reason [0012](0012-jsonl-audit-source-of-truth.md) rejected platform audit storage.
+
+## Deferred — evaluated, not adopted
+
+**[0021 · agentgateway proxy — deferred to post-v1](0021-agentgateway-proxy.md)** · L1
+Written as an adoption on 2026-07-25 and deferred on 2026-07-26. Its own security review returned
+"conditional accept; not safe as currently specified" with eight High findings; it duplicated every
+semantic decision the app kept anyway; and it made M0 depend on a manifest that does not exist
+until M5. v1 calls the provider SDK behind `ports/model.py` and runs FastMCP servers in-process
+instead, keeping the default stack at three services. The v1.3.1 runtime spike and the falsifiable
+adoption triggers are both preserved in the record — read the triggers before reopening it.
 
 ## Reading paths
 

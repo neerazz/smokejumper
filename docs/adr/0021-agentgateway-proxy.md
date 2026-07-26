@@ -1,8 +1,30 @@
-# ADR-0021: agentgateway sidecar proxies LLM and MCP traffic; application policy remains authoritative
+# ADR-0021: agentgateway proxy — deferred to post-v1
 
-**Status:** Accepted · 2026-07-25 · **Level:** L1 · **Amends** [ADR-0010](0010-fastmcp-middleware-governance.md) and [ADR-0017](0017-mcp-domain-single-gateway.md)
+**Status:** Deferred · proposed 2026-07-25 · deferred 2026-07-26 · **Level:** L1
 
-## Context
+This record was written as an adoption and is retained as a deferral. It amends nothing: v1 keeps
+[ADR-0010](0010-fastmcp-middleware-governance.md)'s in-process governance seam and
+[ADR-0017](0017-mcp-domain-single-gateway.md)'s single MCP domain exactly as those records
+describe them. The evaluation below is preserved because it is reusable; the decision is not.
+
+## Why this is deferred
+
+1. **Its own security review did not clear it.** The commissioned review returned *"conditional
+   accept; not safe as currently specified"* with eight High findings. A component that
+   concentrates every provider credential and sees every prompt is the wrong place to accept open
+   High findings.
+2. **It duplicated decisions the app kept anyway.** The adoption text conceded that Smokejumper
+   remains authoritative for semantic tiers, LangGraph interrupts, Slack approval, single-use
+   token consumption, B8 audit, and deterministic replay. CEL discovery filtering was the only
+   enforcement the proxy added, and it sat in front of an executor check that had to run anyway.
+3. **It made M0 unbuildable.** M0 was specified to generate proxy policy from
+   `mcp/manifest.yaml`, a file that does not exist until M5. The first milestone therefore
+   depended on the second-to-last, which is why the build order stalled before a line of code.
+4. **v1 has one provider, one process, and no remote MCP server required for acceptance.** Every
+   capability the proxy sells — failover across providers, per-target backend credentials and TLS,
+   a shared rate limit, multiplexing — prices a fleet. v1 is a single-tenant laptop deployment.
+
+## Context (unchanged — this is why the idea was attractive)
 
 The original design deliberately rejected a standalone MCP proxy to preserve a one-process app.
 That choice left two needs inside Smokejumper code:
@@ -12,10 +34,9 @@ That choice left two needs inside Smokejumper code:
 2. MCP transport, backend credentials/TLS, federation/multiplexing, network authorization, and
    network telemetry.
 
-Neeraj explicitly wants a real gateway proxy. `agentgateway/agentgateway` is an Apache-2.0 Rust
-HTTP/gRPC proxy for HTTP, LLM, MCP, and A2A traffic. Its standalone mode supports virtual LLM
-models, MCP multiplexing, CEL authorization over tool names/arguments, per-target backend auth,
-rate limits, Prometheus metrics, and OTLP traces.
+`agentgateway/agentgateway` is an Apache-2.0 Rust HTTP/gRPC proxy for HTTP, LLM, MCP, and A2A
+traffic. Its standalone mode supports virtual LLM models, MCP multiplexing, CEL authorization over
+tool names/arguments, per-target backend auth, rate limits, Prometheus metrics, and OTLP traces.
 
 A local source/runtime spike pinned v1.3.1 (`dbaaf7ed73671e7aec9195e35e7f726c0b14b84a`):
 
@@ -26,93 +47,75 @@ A local source/runtime spike pinned v1.3.1 (`dbaaf7ed73671e7aec9195e35e7f726c0b1
 - an `mcpAuthorization` CEL rule reduced discovery to the single allowed `echo` tool;
 - admin UI and Prometheus metrics endpoints responded; shutdown drained listeners cleanly.
 
-v1.4.0-beta.1 existed at evaluation time. It is not the v1 dependency: Smokejumper starts from
-stable v1.3.1 and upgrades only through a compatibility test + image-digest change.
+That spike stands. It establishes that the product works as documented, not that Smokejumper needs
+it. v1.4.0-beta.1 existed at evaluation time and was excluded; any future adoption starts from a
+stable release.
 
-## Decision
+## What was proposed
 
-Add **agentgateway as a core sidecar/data-plane service**. The default Compose stack becomes
-`app + agentgateway + postgres + redis`.
+agentgateway v1.3.1 as a core sidecar, making the default Compose stack
+`app + agentgateway + postgres + redis`. `ModelProvider` would call virtual model names
+(`smokejumper-worker`, `smokejumper-synthesis`, `smokejumper-embedding`) on an internal LLM
+listener. The app's single MCP client would call one virtual MCP endpoint multiplexing app-internal
+FastMCP targets and remote servers, with target-prefixed tool names. A deterministic generator
+would emit `compose/agentgateway/config.generated.yaml` and CEL allow rules from
+`mcp/manifest.yaml`, with CI failing on drift. Provider and remote-MCP credentials would live only
+in the sidecar; `config.database` and raw prompt capture would stay disabled so JSONL remained the
+audit source of truth.
 
-### LLM path
+## What v1 does instead
 
-`ModelProvider` calls stable virtual model names (`smokejumper-worker`,
-`smokejumper-synthesis`, and `smokejumper-embedding`) on agentgateway's internal LLM listener.
-Agentgateway owns upstream provider credentials, provider protocol details, failover/routing,
-outer token rate limits, cost metrics, and provider-facing TLS. Smokejumper still owns the
-per-run budget ledger, prompt identity, model response recording, and B8 audit event.
-
-### MCP path
-
-FastMCP remains the runtime used to implement Smokejumper's own MCP servers. Those servers are
-mounted on an app-internal Streamable HTTP endpoint that is reachable only by agentgateway.
-Agentgateway multiplexes those targets with configured remote MCP servers into one virtual MCP
-endpoint; tool names are target-prefixed.
-
-Smokejumper's MCP client connects only to that virtual endpoint. No application package opens a
-direct remote MCP connection.
-
-### Policy ownership and approval
-
-`src/smokejumper/mcp/manifest.yaml` remains the sole semantic tool→tier source of truth. A
-deterministic generator emits `compose/agentgateway/config.generated.yaml` and CEL allow rules
-from that manifest and the federated descriptors. CI fails on generated-config drift.
-
-Enforcement is deliberately layered:
-
-1. agentgateway hides/denies tools with generated `mcpAuthorization` rules;
-2. Smokejumper's executor re-checks the tier from the manifest;
-3. privileged calls interrupt LangGraph and require the B5 Slack/single-use-token path.
-
-Agentgateway does **not** replace the stateful approval broker. The production privileged tier
-still ships empty; the test noop proves the flow.
-
-### Network and audit boundaries
-
-- LLM (`4000`) and MCP (`3000`) listeners are Compose-internal by default.
-- Admin UI (`15000`) binds to loopback only in local development and is disabled/unpublished in
-  dev/prod. The generated config is read-only; the UI is not a configuration authority.
-- Metrics (`15020`) are scraped internally by Prometheus; readiness (`15021`) is internal.
-- Upstream provider and remote MCP credentials exist only in agentgateway's environment.
-- `config.database` is omitted in v1, disabling agentgateway's request-log database and avoiding
-  a second audit store. Raw prompt/completion capture stays off. Metrics and redacted OTLP spans
-  flow to the existing observability backend; JSONL remains authoritative.
-- Network policy denies direct app egress to LLM and remote MCP endpoints where the deployment
-  platform can enforce it.
+- `ModelProvider` (`ports/model.py`) calls the provider SDK directly; provider and model per role
+  are config, per [ADR-0007](0007-model-provider-config.md).
+- FastMCP servers run in the app process, and the one MCP client reaches them over FastMCP's
+  in-memory transport. Federated servers are reached over HTTPS from that same client.
+- `mcp/manifest.yaml` is read at runtime by the middleware and by the executor. Nothing is
+  generated, so nothing can drift.
+- Default Compose is three services: postgres+pgvector, redis, app.
 
 ## Options considered
 
-1. **Hybrid sidecar + application policy (chosen).** Uses agentgateway for the data plane and
-   preserves Smokejumper's domain-specific approval/audit invariants.
+1. Hybrid sidecar + application policy. The proposed option; deferred for the four reasons above.
 2. Replace FastMCP/application governance with agentgateway entirely. Rejected: CEL can filter
    tools but does not own LangGraph suspend/resume, Slack decisions, token consumption, B8, or
    deterministic replay.
-3. Use agentgateway for LLM traffic only. Rejected: leaves remote MCP credentials, federation,
-   and observability in custom application code.
-4. Keep the original in-process-only design. Rejected by the explicit requirement for a gateway
-   proxy and because it duplicates mature routing/transport capability.
+3. Use agentgateway for LLM traffic only. Rejected: buys provider failover that the v1
+   configuration does not ask for, while still adding a critical-path service.
+4. **Keep the in-process design (chosen for v1).** One process, one manifest, two enforcement
+   points, three services. The capability given up is real but unrequested at v1 scale.
 
-## Trade-offs accepted
+## Adopt this when — falsifiable triggers
 
-- The default stack grows from three services to four, and agentgateway becomes a critical path
-  for all model and MCP calls. Health checks, timeouts, and an explicit `needs_human` degradation
-  path are mandatory.
-- The proxy concentrates provider/MCP credentials and sees sensitive traffic. Mitigations:
-  internal listeners, least-privilege backend credentials, no raw request DB, no prompt capture,
-  redacted traces, read-only generated config, and exact version/image pinning.
-- Two enforcement layers can drift. The manifest generator + CI equality check makes one file
-  authoritative instead of asking humans to maintain two policies.
-- The admin UI can overwrite configuration. Smokejumper treats it as a local inspection surface
-  only; changes are made in the manifest/descriptors and regenerated.
-- Provider-specific behavior may differ behind one virtual API. Contract tests run each enabled
-  provider/model role before it can be selected in an environment.
+Each trigger names an observable condition. If none has fired, the in-process path is cheaper and
+this record stays deferred. "We should have a gateway" is not a trigger.
 
-## Revisit when
+1. **Provider failover becomes a requirement, with evidence.** At least one recorded run reached
+   `needs_human` solely because a single provider was unavailable, and that outcome was judged
+   unacceptable. Until then the circuit breaker in SPEC §5.7 is the accepted behavior.
+2. **Federation crosses two auth schemes or needs mTLS.** Two or more federated MCP servers with
+   different credential models, or one requiring client certificates — at which point per-target
+   credential and TLS handling stops being a few lines in `mcp/federated/loader.py`.
+3. **Smokejumper runs as more than one process.** Any horizontal scaling or a second replica,
+   because a per-process rate limiter and a per-process credential resolver stop being correct.
+4. **Multi-tenancy or per-caller tool scoping lands.** Both are v1 non-goals; a manifest that maps
+   tool → tier cannot express tool → tier → caller, and CEL can.
+5. **The security review's findings are closed upstream.** All eight High findings have named
+   fixes in a released non-beta version, *and* a compatibility test proves config load, LLM
+   routing, MCP session, tool authorization, and telemetry on that pinned version and digest.
 
-- agentgateway cannot proxy a required provider/MCP protocol without semantic loss;
-- proxy unavailability dominates incident investigations despite bounded retry/degradation;
-- a fleet deployment needs a Kubernetes Gateway API control plane;
-- a stable post-1.3 release materially changes config or MCP authorization semantics.
+Triggers 1–4 establish need; trigger 5 is a precondition on adoption regardless of need.
+
+## Trade-offs of deferring
+
+- **We gave up** provider failover, an outer token rate limit, per-target backend TLS/credential
+  handling, and network-level tool authorization. The app owns rate limiting and spend control
+  itself (SPEC §5.7), which it already did.
+- **We gave up** a ready-made answer for the fleet deployment story. Trigger 3 is where it
+  returns.
+- **We kept** a three-service stack, a single enforcement path an auditor can read end to end, and
+  an M0 that can actually be built.
+- **We avoided** concentrating every provider credential and every prompt in a component whose own
+  review says it is not yet safe as specified.
 
 ## Sources
 

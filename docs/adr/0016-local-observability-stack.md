@@ -1,6 +1,7 @@
 # ADR-0016: Local observability stack behind compose profiles; SaaS sources replayed
 
-**Status:** Accepted · 2026-07-25 · **Level:** L2
+**Status:** Accepted · 2026-07-25 · **Level:** L2 · **Amended** 2026-07-26 (Grafana dropped from
+the `lab` profile — see "Amended" below)
 
 ## Context
 v1's alert sources (Grafana, Datadog, PagerDuty, generic) and its read-tier tool backends
@@ -16,11 +17,20 @@ ships telemetry to their cloud, and getting their webhooks back to a laptop need
 tunnel. Any "just add it to compose" plan silently assumes otherwise.
 
 ## Decision
-Add a **`lab` compose profile** with prometheus + alertmanager, grafana (OSS), loki +
-promtail, and a `faultbox` fault-injection app. Add a **`fixtures` profile** with a replayer
-that POSTs recorded Datadog/PagerDuty payloads at the Receiver. Default `docker compose up`
-remains postgres + redis + app. Prometheus becomes the `metric query` backend; Loki becomes
-the `log search` backend.
+Add a **`lab` compose profile** with prometheus + alertmanager, loki + promtail, and a
+`faultbox` fault-injection app. Add a **`fixtures` profile** with a replayer that POSTs recorded
+Datadog/PagerDuty payloads at the Receiver. Default `docker compose up` remains postgres +
+redis + app. Prometheus becomes the `metric query` backend; Loki becomes the `log search`
+backend.
+
+## Amended 2026-07-26: no Grafana in `lab`
+The original profile also ran Grafana OSS as a second local alert source. Alertmanager already
+fires a real HTTP webhook at the Receiver, so the second source added a container without adding
+coverage: what the Grafana normalizer has to get right is the *payload shape*, and that is tested
+by golden fixtures and the `fixtures` replayer, exactly like Datadog and PagerDuty. Grafana
+remains a supported alert source; it is simply not run locally. Loki stays, because `log search`
+still needs a real backend and losing it would return that tool to the unbacked state this
+record exists to fix.
 
 ## Options considered
 1. **Profiles + Loki + fixture replay for SaaS (chosen).**

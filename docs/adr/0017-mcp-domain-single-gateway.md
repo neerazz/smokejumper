@@ -1,6 +1,6 @@
 # ADR-0017: One MCP domain — single gateway, single tier manifest, governed federation
 
-**Status:** Accepted · 2026-07-25 · **Level:** L2 · **Amends** [ADR-0010](0010-fastmcp-middleware-governance.md) · **Amended by** [ADR-0021](0021-agentgateway-proxy.md) (one application domain/manifest remains; agentgateway becomes the network data plane)
+**Status:** Accepted · 2026-07-25 · **Level:** L2 · **Amends** [ADR-0010](0010-fastmcp-middleware-governance.md)
 
 ## Context
 MCP concerns were split across two packages: `hub/` owned the tool gateway, manifest, tiers,
@@ -25,16 +25,17 @@ Collapse everything MCP into one domain, `src/smokejumper/mcp/`:
 - `manifest.yaml` — a **single** tool→tier registry covering our servers and federated ones.
 - `tiers.py` / `approvals.py` — enforcement (plus the ADR-0010 redundant executor check) and
   the B5 token lifecycle, moved from `hub/`.
-- `servers/` — servers we implement, run **in-process** (metrics → Prometheus, logs → Loki,
-  knowledge → the §5.4 façade, testing → `demo_destructive_noop`).
+- `servers/` — servers we implement, run **in-process** and reached over FastMCP's in-memory
+  transport (metrics → Prometheus, logs → Loki, knowledge → the §5.4 façade, testing →
+  `demo_destructive_noop`).
 - `federated/descriptors/*.yaml` — external servers declared as config, loaded through the
-  same gateway and the same manifest.
+  same client and the same manifest.
 
 `hub/` is deleted. `knowledge/` federates by calling `mcp`.
 
-ADR-0021 later inserts a standalone proxy without restoring the old split: `mcp/` still owns
-the only application MCP client and manifest, but that client talks to agentgateway's virtual
-MCP endpoint instead of connecting directly to local/federated targets.
+Putting a standalone proxy in front of this client was proposed and deferred
+([ADR-0021](0021-agentgateway-proxy.md)), so the client connects to local and federated targets
+itself — which is the arrangement this record describes.
 
 ## Options considered
 1. **One domain under `src/`, central manifest (chosen).**
