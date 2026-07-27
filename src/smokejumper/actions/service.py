@@ -34,6 +34,15 @@ class TicketOutcome:
     external_id: str
     created: bool
     update_count: int
+    replayed: bool
+
+
+@dataclass(frozen=True)
+class RunClaim:
+    """Existing or newly-created durable state for one deterministic run id."""
+
+    status: str
+    conclusion_status: str | None
 
 
 async def apply(
@@ -46,8 +55,41 @@ async def apply(
 
     `created` tells the caller which happened, so the audit record and the Slack
     receipt can say "opened" or "updated" truthfully rather than guessing.
+    The run row is locked before consulting `ticket_actions`, making a repeated
+    `(fingerprint, run_id)` delivery return its first result without touching the
+    ticket again.
     """
     moment = now or datetime.now(tz=UTC)
+    locked = (
+        await connection.execute(
+            text("SELECT run_id FROM runs WHERE run_id = :run_id FOR UPDATE"),
+            {"run_id": conclusion.run_id},
+        )
+    ).first()
+    if locked is None:
+        raise RuntimeError(f"run {conclusion.run_id} must exist before Actions")
+
+    prior = (
+        await connection.execute(
+            text(
+                """
+                SELECT ticket_id, external_id, created, update_count
+                  FROM ticket_actions
+                 WHERE run_id = :run_id
+                """
+            ),
+            {"run_id": conclusion.run_id},
+        )
+    ).first()
+    if prior is not None:
+        return TicketOutcome(
+            ticket_id=str(prior.ticket_id),
+            external_id=str(prior.external_id),
+            created=bool(prior.created),
+            update_count=int(prior.update_count),
+            replayed=True,
+        )
+
     ticket_id = uuid4()
     # The fixture provider issues a readable id; a real adapter would return the
     # provider's own. Derived from the fingerprint so it is stable per incident.
@@ -76,46 +118,70 @@ async def apply(
 
     if inserted is not None:
         logger.info("opened ticket %s for %s", inserted.external_id, conclusion.fingerprint)
-        return TicketOutcome(
+        outcome = TicketOutcome(
             ticket_id=str(inserted.id),
             external_id=str(inserted.external_id),
             created=True,
             update_count=0,
+            replayed=False,
+        )
+    else:
+        # Someone already owns this fingerprint: comment on theirs.
+        updated = (
+            await connection.execute(
+                text(
+                    """
+                    UPDATE tickets
+                       SET update_count = update_count + 1
+                     WHERE fingerprint = :fingerprint
+                       AND closed_at IS NULL
+                 RETURNING id, external_id, update_count
+                    """
+                ),
+                {"fingerprint": conclusion.fingerprint},
+            )
+        ).first()
+
+        if updated is None:  # pragma: no cover - only if the row closed mid-transaction
+            raise RuntimeError(
+                f"no open ticket for {conclusion.fingerprint} after a conflicting insert"
+            )
+
+        logger.info(
+            "updated ticket %s for %s (update #%d)",
+            updated.external_id,
+            conclusion.fingerprint,
+            updated.update_count,
+        )
+        outcome = TicketOutcome(
+            ticket_id=str(updated.id),
+            external_id=str(updated.external_id),
+            created=False,
+            update_count=int(updated.update_count),
+            replayed=False,
         )
 
-    # Someone already owns this fingerprint: comment on theirs.
-    updated = (
-        await connection.execute(
-            text(
-                """
-                UPDATE tickets
-                   SET update_count = update_count + 1
-                 WHERE fingerprint = :fingerprint
-                   AND closed_at IS NULL
-             RETURNING id, external_id, update_count
-                """
-            ),
-            {"fingerprint": conclusion.fingerprint},
-        )
-    ).first()
-
-    if updated is None:  # pragma: no cover - only if the row closed mid-transaction
-        raise RuntimeError(
-            f"no open ticket for {conclusion.fingerprint} after a conflicting insert"
-        )
-
-    logger.info(
-        "updated ticket %s for %s (update #%d)",
-        updated.external_id,
-        conclusion.fingerprint,
-        updated.update_count,
+    await connection.execute(
+        text(
+            """
+            INSERT INTO ticket_actions
+                   (run_id, fingerprint, ticket_id, external_id, created,
+                    update_count, applied_at)
+            VALUES (:run_id, :fingerprint, :ticket_id, :external_id, :created,
+                    :update_count, :applied_at)
+            """
+        ),
+        {
+            "run_id": conclusion.run_id,
+            "fingerprint": conclusion.fingerprint,
+            "ticket_id": outcome.ticket_id,
+            "external_id": outcome.external_id,
+            "created": outcome.created,
+            "update_count": outcome.update_count,
+            "applied_at": moment,
+        },
     )
-    return TicketOutcome(
-        ticket_id=str(updated.id),
-        external_id=str(updated.external_id),
-        created=False,
-        update_count=int(updated.update_count),
-    )
+    return outcome
 
 
 async def open_run(
@@ -127,12 +193,11 @@ async def open_run(
     audit_log_file: str,
     audit_start_offset: int,
     started_at: datetime,
-) -> None:
-    """Record that a run began, before any work happens.
+) -> RunClaim:
+    """Claim a deterministic run id and return any prior completion state.
 
-    Written first so a crash mid-investigation leaves a `running` row rather than
-    no trace: an incident that vanished is indistinguishable from one that never
-    arrived.
+    Redis redelivery uses the event UUID again. `ON CONFLICT` therefore turns a
+    second delivery into a state read rather than a second run.
     """
     await connection.execute(
         text(
@@ -142,6 +207,7 @@ async def open_run(
                     audit_log_file, audit_start_offset)
             VALUES (:run_id, :event_id, :fingerprint, 'running', :started_at,
                     :audit_log_file, :audit_start_offset)
+            ON CONFLICT (run_id) DO NOTHING
             """
         ),
         {
@@ -153,6 +219,39 @@ async def open_run(
             "audit_start_offset": audit_start_offset,
         },
     )
+    # A prior process may have died with the run still `running`. Point replay at
+    # this complete attempt rather than at a partial JSONL range in another file.
+    await connection.execute(
+        text(
+            """
+            UPDATE runs
+               SET audit_log_file = :audit_log_file,
+                   audit_start_offset = :audit_start_offset,
+                   started_at = :started_at
+             WHERE run_id = :run_id
+               AND status = 'running'
+            """
+        ),
+        {
+            "run_id": run_id,
+            "audit_log_file": audit_log_file,
+            "audit_start_offset": audit_start_offset,
+            "started_at": started_at,
+        },
+    )
+    row = (
+        await connection.execute(
+            text(
+                """
+                SELECT status, conclusion ->> 'status' AS conclusion_status
+                  FROM runs
+                 WHERE run_id = :run_id
+                """
+            ),
+            {"run_id": run_id},
+        )
+    ).one()
+    return RunClaim(status=str(row.status), conclusion_status=row.conclusion_status)
 
 
 async def close_run(

@@ -25,6 +25,6 @@ class Contract(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1]
     """A `Literal` rather than an `int`: a replay that meets a version this build
     cannot interpret must fail loudly instead of guessing at the payload shape."""

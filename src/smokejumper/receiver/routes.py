@@ -1,8 +1,7 @@
 """Inbound webhook routes (SPEC 5.1).
 
-One route per HTTP source. Datadog is implemented; the other sources named in
-SPEC 5.1 arrive with their own normalizers rather than being stubbed here, because
-a route that accepts a payload it cannot normalize would return 202 and drop it.
+One route per HTTP source. All five HTTP sources named in SPEC 5.1 are implemented;
+each route verifies before parsing and uses its source-specific normalizer.
 
 Status codes are deliberate and are part of the contract with the sender:
 
@@ -30,16 +29,56 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from smokejumper.contracts.events import AgentEvent
-from smokejumper.queue import producer
-from smokejumper.receiver import repository
+from smokejumper.receiver import delivery, repository
 from smokejumper.receiver.normalizers import datadog, sources
 from smokejumper.receiver.verification import (
     verify_hmac_signature,
+    verify_pagerduty_signature,
     verify_shared_token,
     verify_source_ip,
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def _admit_and_publish_one(
+    *,
+    engine: AsyncEngine,
+    redis: Redis,
+    event: AgentEvent,
+) -> dict[str, Any]:
+    """Commit admission, then fast-dispatch the durable outbox row.
+
+    Redis failure no longer rolls back or strands the event: the row remains with
+    `queued_at IS NULL`, the background dispatcher retries it, and HTTP can still
+    acknowledge the durable admission. Committing before XADD also prevents the
+    worker from racing the event row's foreign-key visibility.
+    """
+    async with engine.begin() as connection:
+        admission = await repository.admit(connection, event)
+    try:
+        message_id = await delivery.dispatch_event(engine, redis, event_id=admission.event_id)
+    except Exception:
+        logger.exception("event %s is durable but pending Redis dispatch", admission.event_id)
+        message_id = None
+
+    if admission.is_duplicate:
+        return {
+            "status": "duplicate",
+            "event_id": admission.event_id,
+            "fingerprint": admission.fingerprint,
+            "dedupe_count": admission.dedupe_count,
+            "queue_message_id": message_id,
+            "queue_status": "published" if message_id else "pending",
+        }
+    return {
+        "status": "accepted",
+        "event_id": admission.event_id,
+        "fingerprint": admission.fingerprint,
+        "severity": event.severity.value,
+        "queue_message_id": message_id,
+        "queue_status": "published" if message_id else "pending",
+    }
 
 
 async def _admit_and_enqueue(
@@ -56,27 +95,7 @@ async def _admit_and_enqueue(
     """
     results: list[dict[str, Any]] = []
     for event in events:
-        async with engine.begin() as connection:
-            admission = await repository.admit(connection, event)
-        if admission.is_duplicate:
-            results.append(
-                {
-                    "status": "duplicate",
-                    "fingerprint": admission.fingerprint,
-                    "dedupe_count": admission.dedupe_count,
-                }
-            )
-            continue
-        message_id = await producer.publish(redis, event)
-        results.append(
-            {
-                "status": "accepted",
-                "event_id": admission.event_id,
-                "fingerprint": admission.fingerprint,
-                "severity": event.severity.value,
-                "queue_message_id": message_id,
-            }
-        )
+        results.append(await _admit_and_publish_one(engine=engine, redis=redis, event=event))
     return results
 
 
@@ -138,36 +157,28 @@ def build_router(
                 "windows_closed": closed,
             }
 
-        async with engine.begin() as connection:
-            admission = await repository.admit(connection, event)
+        result = await _admit_and_publish_one(engine=engine, redis=redis, event=event)
 
-        if admission.is_duplicate:
+        if result["status"] == "duplicate":
             logger.info(
                 "datadog duplicate for %s, dedupe_count=%d",
-                admission.fingerprint,
-                admission.dedupe_count,
+                result["fingerprint"],
+                result["dedupe_count"],
             )
-            return {
-                "status": "duplicate",
-                "event_id": admission.event_id,
-                "fingerprint": admission.fingerprint,
-                "dedupe_count": admission.dedupe_count,
-            }
+            return result
 
-        # Enqueued only after the row is committed. The reverse order would let a
-        # consumer pick up an event whose row does not exist yet.
-        message_id = await producer.publish(redis, event)
-        logger.info("datadog accepted %s as %s", admission.fingerprint, message_id)
+        logger.info("datadog accepted %s as %s", result["fingerprint"], result["queue_message_id"])
         return {
-            "status": "accepted",
-            "event_id": admission.event_id,
-            "fingerprint": admission.fingerprint,
-            "severity": event.severity.value,
+            **result,
             "entities": [f"{entity.type}:{entity.id}" for entity in event.entities],
-            "queue_message_id": message_id,
         }
 
     secrets = source_secrets or {}
+    resolution_normalizers = {
+        "pagerduty": sources.resolved_pagerduty,
+        "grafana": sources.resolved_grafana,
+        "alertmanager": sources.resolved_alertmanager,
+    }
 
     def _register(name: str, normalize: Any, *, hmac_signed: bool) -> None:
         """Wire one source's route.
@@ -200,9 +211,13 @@ def build_router(
                 )
             else:
                 ok = (
-                    verify_hmac_signature(body, request.headers, secret=secret)
-                    if _hmac
-                    else verify_shared_token(request.headers, secret=secret)
+                    verify_pagerduty_signature(body, request.headers, secret=secret)
+                    if _name == "pagerduty"
+                    else (
+                        verify_hmac_signature(body, request.headers, secret=secret)
+                        if _hmac
+                        else verify_shared_token(request.headers, secret=secret)
+                    )
                 )
             if not ok:
                 logger.warning("rejected unverified %s delivery", _name)
@@ -210,7 +225,10 @@ def build_router(
                 return {"status": "unverified"}
 
             try:
-                events = _normalize(await request.json(), received_at=received_at)
+                payload = await request.json()
+                events = _normalize(payload, received_at=received_at)
+                resolved = resolution_normalizers.get(_name)
+                resolved_events = resolved(payload, received_at=received_at) if resolved else []
             except (ValueError, TypeError) as error:
                 reason = str(error)[:500]
                 logger.warning("quarantined %s delivery: %s", _name, reason)
@@ -224,13 +242,31 @@ def build_router(
                     )
                 return {"status": "quarantined", "reason": reason}
 
+            windows_closed = 0
+            for resolved_event in resolved_events:
+                async with engine.begin() as connection:
+                    windows_closed += await repository.close_window(
+                        connection,
+                        fingerprint=resolved_event.fingerprint,
+                        closed_at=received_at,
+                    )
+
             if not events:
                 # A batch of only resolved alerts. Nothing to investigate, and
                 # nothing malformed either.
-                return {"status": "ignored", "reason": "no firing alerts in payload"}
+                return {
+                    "status": "ignored",
+                    "reason": "no firing alerts in payload",
+                    "windows_closed": windows_closed,
+                }
 
             results = await _admit_and_enqueue(engine=engine, redis=redis, events=events)
-            return {"status": "processed", "count": len(results), "results": results}
+            return {
+                "status": "processed",
+                "count": len(results),
+                "windows_closed": windows_closed,
+                "results": results,
+            }
 
     _register("pagerduty", sources.normalize_pagerduty, hmac_signed=False)
     _register("grafana", sources.normalize_grafana, hmac_signed=False)

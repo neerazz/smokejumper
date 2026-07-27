@@ -21,6 +21,7 @@ tools at M5, and the status ladder widens when the evidence does.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from uuid import UUID
 
 from smokejumper.contracts.assignments import Budget, Finding
 from smokejumper.contracts.conclusions import Conclusion, ConclusionStatus
@@ -33,7 +34,7 @@ ESCALATING = frozenset({Severity.CRITICAL, Severity.HIGH})
 # Deterministic triage calls no tools and spends no tokens. Reporting a real zero
 # rather than omitting the field keeps the Governor's arithmetic (SPEC 5.7) valid
 # once model-backed specialists start reporting non-zero budgets beside these.
-NO_SPEND = Budget(tool_calls=0, tokens=0)
+NO_SPEND = Budget(schema_version=1, tool_calls=0, tokens=0)
 
 
 def _entity_summary(event: AgentEvent) -> str:
@@ -46,6 +47,7 @@ def _findings(event: AgentEvent) -> list[Finding]:
     """Everything the alert itself establishes, each tied to its source."""
     findings: list[Finding] = [
         Finding(
+            schema_version=1,
             agent="receiver",
             hypothesis=(
                 f"{event.source.value} monitor {event.source_event_key} is firing at "
@@ -60,23 +62,10 @@ def _findings(event: AgentEvent) -> list[Finding]:
     if event.entities:
         findings.append(
             Finding(
+                schema_version=1,
                 agent="receiver",
                 hypothesis=f"affected subject: {_entity_summary(event)}",
                 evidence=[f"entity:{e.type}:{e.id}" for e in event.entities],
-                confidence=1.0,
-                budget_spent=NO_SPEND,
-            )
-        )
-
-    if event.dedupe_count > 1:
-        findings.append(
-            Finding(
-                agent="receiver",
-                hypothesis=(
-                    f"the condition is sustained: {event.dedupe_count} deliveries "
-                    "inside the dedupe window rather than a single spike"
-                ),
-                evidence=[f"dedupe_count:{event.dedupe_count}"],
                 confidence=1.0,
                 budget_spent=NO_SPEND,
             )
@@ -86,6 +75,7 @@ def _findings(event: AgentEvent) -> list[Finding]:
     # Conclusion honest about why it stops at needs_human.
     findings.append(
         Finding(
+            schema_version=1,
             agent="triage",
             hypothesis=(
                 "no root cause determined: this build has no metric history, deploy "
@@ -107,7 +97,6 @@ def _summary(event: AgentEvent, status: ConclusionStatus) -> str:
         f"- severity: `{event.severity.value}`",
         f"- subject: {_entity_summary(event)}",
         f"- first seen: {event.occurred_at.isoformat()}",
-        f"- deliveries in window: {event.dedupe_count}",
         "",
         f"Triage reached `{status.value}`.",
     ]
@@ -116,7 +105,7 @@ def _summary(event: AgentEvent, status: ConclusionStatus) -> str:
     return "\n".join(lines)
 
 
-def triage(event: AgentEvent) -> Conclusion:
+def triage(event: AgentEvent, *, run_id: UUID | None = None) -> Conclusion:
     """Produce the Conclusion for one event.
 
     Deterministic: the same event always yields the same Conclusion, apart from
@@ -135,7 +124,8 @@ def triage(event: AgentEvent) -> Conclusion:
     )
 
     return Conclusion(
-        run_id=event.id,
+        schema_version=1,
+        run_id=run_id or event.id,
         fingerprint=event.fingerprint,
         status=status,
         # Confidence is in the *classification*, not in a root cause. High,

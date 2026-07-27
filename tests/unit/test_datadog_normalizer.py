@@ -19,7 +19,9 @@ from smokejumper.receiver.normalizers import datadog
 from smokejumper.receiver.verification import (
     DATADOG_TOKEN_HEADER,
     GENERIC_SIGNATURE_HEADER,
+    PAGERDUTY_SIGNATURE_HEADER,
     verify_hmac_signature,
+    verify_pagerduty_signature,
     verify_shared_token,
 )
 
@@ -158,6 +160,29 @@ def test_an_unconfigured_secret_never_passes() -> None:
     assert verify_shared_token({DATADOG_TOKEN_HEADER: ""}, secret="") is False
     assert verify_shared_token({DATADOG_TOKEN_HEADER: "anything"}, secret="") is False
     assert verify_hmac_signature(b"{}", {GENERIC_SIGNATURE_HEADER: "sha256=x"}, secret="") is False
+    assert (
+        verify_pagerduty_signature(b"{}", {PAGERDUTY_SIGNATURE_HEADER: "v1=x"}, secret="") is False
+    )
+
+
+def test_pagerduty_signature_accepts_any_valid_rotated_v1_digest() -> None:
+    import hashlib
+    import hmac as hmac_mod
+
+    body = b'{"event":{"event_type":"incident.triggered"}}'
+    secret = "pagerduty-webhook-secret"
+    digest = hmac_mod.new(secret.encode(), body, hashlib.sha256).hexdigest()
+
+    assert verify_pagerduty_signature(
+        body,
+        {PAGERDUTY_SIGNATURE_HEADER: f"v1={'0' * 64}, v1={digest}"},
+        secret=secret,
+    )
+    assert not verify_pagerduty_signature(
+        body,
+        {PAGERDUTY_SIGNATURE_HEADER: f"v1={'0' * 64}"},
+        secret=secret,
+    )
 
 
 def test_generic_hmac_is_computed_over_raw_bytes() -> None:

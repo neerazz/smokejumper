@@ -117,21 +117,31 @@ def _pagerduty(unique: str, **overrides: Any) -> dict[str, Any]:
     return {"event": {"event_type": "incident.triggered", "data": data}}
 
 
-def test_pagerduty_without_the_token_is_rejected(unique: str, pagerduty_secret: str) -> None:
+def _pagerduty_post(payload: dict[str, Any], *, secret: str) -> httpx.Response:
+    """Use PagerDuty v3's signature scheme over the exact transmitted bytes."""
+    body = json.dumps(payload).encode()
+    digest = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return httpx.post(
+        f"{APP}/webhooks/pagerduty",
+        content=body,
+        headers={"Content-Type": "application/json", "X-PagerDuty-Signature": f"v1={digest}"},
+        timeout=30,
+    )
+
+
+def test_pagerduty_without_a_valid_signature_is_rejected(
+    unique: str, pagerduty_secret: str
+) -> None:
     payload = _pagerduty(unique)
 
     assert _post("/webhooks/pagerduty", payload).status_code == 401
-    assert (
-        _post("/webhooks/pagerduty", payload, **{"X-Smokejumper-Token": "wrong"}).status_code == 401
-    )
+    assert _pagerduty_post(payload, secret="wrong").status_code == 401
     # Rejected before persistence, so there is nothing to find afterwards.
     assert httpx.get(f"{APP}/runs/{unique}", timeout=15).status_code == 404
 
 
 def test_a_pagerduty_incident_reaches_a_ticket(unique: str, pagerduty_secret: str) -> None:
-    response = _post(
-        "/webhooks/pagerduty", _pagerduty(unique), **{"X-Smokejumper-Token": pagerduty_secret}
-    )
+    response = _pagerduty_post(_pagerduty(unique), secret=pagerduty_secret)
 
     assert response.status_code == 202
     body = response.json()
@@ -151,18 +161,35 @@ def test_a_pagerduty_redelivery_does_not_open_a_second_ticket(
     unique: str, pagerduty_secret: str
 ) -> None:
     """PagerDuty retries, and `incident_key` is what makes a retry the same incident."""
-    token = {"X-Smokejumper-Token": pagerduty_secret}
-    first = _post("/webhooks/pagerduty", _pagerduty(unique), **token).json()["results"][0]
+    first = _pagerduty_post(_pagerduty(unique), secret=pagerduty_secret).json()["results"][0]
     _await_conclusion(first["fingerprint"])
 
     # A different incident object for the same condition, which is what the
     # second delivery of a re-triggered incident looks like.
-    second = _post("/webhooks/pagerduty", _pagerduty(unique, id="PDOTHER"), **token).json()[
+    second = _pagerduty_post(_pagerduty(unique, id="PDOTHER"), secret=pagerduty_secret).json()[
         "results"
     ][0]
 
     assert second["status"] == "duplicate"
     assert second["fingerprint"] == first["fingerprint"]
+
+
+def test_pagerduty_resolution_closes_the_window_for_a_retrigger(
+    unique: str, pagerduty_secret: str
+) -> None:
+    first = _pagerduty_post(_pagerduty(unique), secret=pagerduty_secret).json()["results"][0]
+
+    resolved = _pagerduty(unique)
+    resolved["event"]["event_type"] = "incident.resolved"
+    resolution = _pagerduty_post(resolved, secret=pagerduty_secret).json()
+    retrigger = _pagerduty_post(_pagerduty(unique, id="PDNEW"), secret=pagerduty_secret).json()[
+        "results"
+    ][0]
+
+    assert resolution["status"] == "ignored"
+    assert resolution["windows_closed"] == 1
+    assert retrigger["status"] == "accepted"
+    assert retrigger["fingerprint"] == first["fingerprint"]
 
 
 # --- Grafana / Alertmanager ------------------------------------------------
@@ -222,11 +249,22 @@ def test_a_grafana_batch_becomes_one_ticket_per_alert(unique: str, grafana_secre
 
 
 def test_a_fully_resolved_grafana_batch_is_ignored(unique: str, grafana_secret: str) -> None:
-    payload = {"alerts": [_alert(f"it-graf-r-{unique}", status="resolved")]}
+    fingerprint = f"it-graf-r-{unique}"
+    token = {"X-Smokejumper-Token": grafana_secret}
+    first = _post("/webhooks/grafana", {"alerts": [_alert(fingerprint)]}, **token).json()[
+        "results"
+    ][0]
+    payload = {"alerts": [_alert(fingerprint, status="resolved")]}
 
-    body = _post("/webhooks/grafana", payload, **{"X-Smokejumper-Token": grafana_secret}).json()
+    body = _post("/webhooks/grafana", payload, **token).json()
+    retrigger = _post("/webhooks/grafana", {"alerts": [_alert(fingerprint)]}, **token).json()[
+        "results"
+    ][0]
 
     assert body["status"] == "ignored"
+    assert body["windows_closed"] == 1
+    assert retrigger["status"] == "accepted"
+    assert retrigger["fingerprint"] == first["fingerprint"]
 
 
 def test_alertmanager_is_admitted_by_network_and_reaches_a_ticket(unique: str) -> None:

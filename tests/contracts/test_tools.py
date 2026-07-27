@@ -14,6 +14,7 @@ RUN_ID = "0192f0a1-0000-7000-8000-000000000001"
 
 def make_result(**overrides: object) -> ToolResult:
     payload: dict[str, object] = {
+        "schema_version": 1,
         "ok": True,
         "value": {"series": [[1720000000, "0.07"]]},
         "latency_ms": 42,
@@ -25,6 +26,7 @@ def make_result(**overrides: object) -> ToolResult:
 def test_tool_call_round_trips_json() -> None:
     call = ToolCall.model_validate(
         {
+            "schema_version": 1,
             "run_id": RUN_ID,
             "agent": "metrics-analyst",
             "tool": "metric.query",
@@ -39,7 +41,14 @@ def test_tool_call_round_trips_json() -> None:
 def test_tier_enum_is_closed() -> None:
     with pytest.raises(ValidationError):
         ToolCall.model_validate(
-            {"run_id": RUN_ID, "agent": "a", "tool": "t", "args": {}, "tier": "admin"}
+            {
+                "schema_version": 1,
+                "run_id": RUN_ID,
+                "agent": "a",
+                "tool": "t",
+                "args": {},
+                "tier": "admin",
+            }
         )
 
 
@@ -85,7 +94,7 @@ def test_cost_stays_exact_through_json() -> None:
 
 def test_cost_and_latency_are_required_and_non_negative() -> None:
     with pytest.raises(ValidationError):
-        ToolResult.model_validate({"ok": True, "value": 1, "latency_ms": 10})
+        ToolResult.model_validate({"schema_version": 1, "ok": True, "value": 1, "latency_ms": 10})
     with pytest.raises(ValidationError):
         make_result(cost="-0.01")
     with pytest.raises(ValidationError):

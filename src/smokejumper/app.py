@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import os
 from collections.abc import AsyncIterator, Awaitable, Sequence
 from contextlib import asynccontextmanager
 from ipaddress import IPv4Network, IPv6Network
@@ -24,7 +23,8 @@ from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from sqlalchemy import text
 
-from smokejumper.persistence.database import check_connection, create_engine
+from smokejumper.persistence.database import check_connection, check_schema, create_engine
+from smokejumper.receiver.delivery import OutboxHandle, outbox_task, pending_count
 from smokejumper.receiver.routes import build_router
 from smokejumper.recorder.writer import Recorder
 from smokejumper.worker import WorkerHandle, queue_depth, worker_task
@@ -49,6 +49,7 @@ def create_app(
     *,
     database_url: str,
     redis_url: str,
+    log_dir: Path = Path("logs"),
     datadog_secret: str = "",
     source_secrets: dict[str, str] | None = None,
     alertmanager_allowlist: Sequence[IPv4Network | IPv6Network] = (),
@@ -65,19 +66,23 @@ def create_app(
     """
     engine = create_engine(database_url)
     redis = Redis.from_url(redis_url)
-    recorder = Recorder(Path(os.environ.get("SMOKEJUMPER_LOG_DIR", "logs")))
+    recorder = Recorder(log_dir)
 
     # Populated at startup so `/healthz` can report worker liveness. A module
     # attribute rather than a closure variable because the health route needs to
     # read whatever the current lifespan set, including `None` before startup.
-    state: dict[str, Any] = {"worker": None}
+    state: dict[str, Any] = {"worker": None, "outbox": None}
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         # The worker runs beside the API so `docker compose up` yields a system
         # that actually processes an alert, rather than one that only accepts it.
-        async with worker_task(engine, redis, recorder) as handle:
-            state["worker"] = handle
+        async with (
+            outbox_task(engine, redis) as outbox,
+            worker_task(engine, redis, recorder) as worker,
+        ):
+            state["outbox"] = outbox
+            state["worker"] = worker
             try:
                 yield
             finally:
@@ -105,10 +110,13 @@ def create_app(
         the container "healthy" through exactly that failure.
         """
         worker: WorkerHandle | None = state["worker"]
+        outbox: OutboxHandle | None = state["outbox"]
         checks = {
             "postgres": await _probe(check_connection(engine)),
+            "schema": await _probe(check_schema(engine)),
             "redis": await _probe(redis.ping()),
             "worker": worker.status() if worker else "starting",
+            "outbox": outbox.status() if outbox else "starting",
         }
         healthy = all(value == "ok" for value in checks.values())
 
@@ -118,6 +126,8 @@ def create_app(
         details: dict[str, Any] = {"recorder_write_failures": recorder.failures}
         with contextlib.suppress(Exception):
             details["queue"] = await queue_depth(redis)
+        with contextlib.suppress(Exception):
+            details["outbox_pending"] = await pending_count(engine)
 
         return JSONResponse(
             status_code=200 if healthy else 503,
@@ -140,7 +150,16 @@ def create_app(
                                r.audit_log_file, r.audit_start_offset, r.audit_end_offset,
                                t.external_id, t.update_count
                           FROM runs r
-                          LEFT JOIN tickets t ON t.fingerprint = r.fingerprint
+                          LEFT JOIN tickets t ON t.id = COALESCE(
+                               (SELECT ta.ticket_id
+                                  FROM ticket_actions ta
+                                 WHERE ta.run_id = r.run_id),
+                               (SELECT fallback.id
+                                  FROM tickets fallback
+                                 WHERE fallback.fingerprint = r.fingerprint
+                              ORDER BY fallback.created_at DESC
+                                 LIMIT 1)
+                          )
                          WHERE r.fingerprint = :fingerprint
                       ORDER BY r.started_at DESC
                          LIMIT 1
@@ -198,6 +217,7 @@ def app_from_env() -> FastAPI:
     return create_app(
         database_url=str(settings.database.url),
         redis_url=str(settings.redis.url),
+        log_dir=settings.log_dir,
         datadog_secret=reveal("datadog"),
         source_secrets={source: reveal(source) for source in ("grafana", "pagerduty", "generic")},
         alertmanager_allowlist=settings.webhooks.alertmanager_allowlist,

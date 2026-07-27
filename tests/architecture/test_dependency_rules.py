@@ -28,6 +28,7 @@ MODEL_SDK_CONFINED = "a model/provider SDK may be imported only in ports/model.p
 NO_MODEL_DOWNSTREAM = "receiver/ and actions/ must not reach a model"
 INTELLIGENCE_EMITS_ONLY = "intelligence must not import actions; it only emits B6"
 MCP_CONFINED = "only mcp/ may speak MCP"
+ENVIRONMENT_CONFINED = "only config.py may read the application process environment"
 
 PROVIDER_SDKS = frozenset(
     {
@@ -50,6 +51,7 @@ MODEL_PORT = "smokejumper.ports.model"
 CONTRACTS_DIR = Path("contracts")
 MCP_DIR = Path("mcp")
 MODEL_SEAM = Path("ports/model.py")
+CONFIG_SEAM = Path("config.py")
 MODEL_FREE_DIRS = (Path("receiver"), Path("actions"))
 INTELLIGENCE_DIR = Path("intelligence")
 ACTIONS_PACKAGE = "smokejumper.actions"
@@ -72,6 +74,11 @@ def check_dependency_rules(package_root: Path) -> list[Violation]:
     seen: set[tuple[str, str, int]] = set()
     for path in sorted(package_root.rglob("*.py")):
         module = path.relative_to(package_root)
+        for line, expression in _environment_reads(path):
+            if module != CONFIG_SEAM:
+                violations.append(
+                    Violation(ENVIRONMENT_CONFINED, module.as_posix(), line, expression)
+                )
         for line, imported in _imports(path, package_root):
             for violation in _breaches(module, line, imported):
                 key = (violation.rule, violation.module, violation.line)
@@ -135,6 +142,20 @@ def _imports(path: Path, package_root: Path) -> Iterator[tuple[int, str]]:
                 yield node.lineno, f"{base}.{alias.name}" if base else alias.name
 
 
+def _environment_reads(path: Path) -> Iterator[tuple[int, str]]:
+    """Direct ``os.environ`` / ``os.getenv`` reads in one module."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        if (
+            isinstance(node.value, ast.Name)
+            and node.value.id == "os"
+            and node.attr in {"environ", "getenv"}
+        ):
+            yield node.lineno, f"os.{node.attr}"
+
+
 def _absolute_base(node: ast.ImportFrom, package: list[str]) -> str:
     if not node.level:
         return node.module or ""
@@ -190,6 +211,7 @@ def test_packages_that_do_not_exist_yet_are_not_an_error(tmp_path: Path) -> None
             "from langchain_mcp_adapters.client import MultiServerMCPClient\n",
             MCP_CONFINED,
         ),
+        ("app.py", "import os\nLOG_DIR = os.getenv('SMOKEJUMPER_LOG_DIR')\n", ENVIRONMENT_CONFINED),
     ],
 )
 def test_the_checker_catches_a_deliberate_breach(
@@ -224,6 +246,7 @@ def test_permitted_imports_are_not_flagged(tmp_path: Path) -> None:
     )
     _write(package_root, "contracts/events.py", "from pydantic import BaseModel\n")
     _write(package_root, "ports/model.py", "import anthropic\nfrom openai import AsyncOpenAI\n")
+    _write(package_root, "config.py", "import os\nENV = os.environ.get('SMOKEJUMPER_ENV')\n")
     _write(package_root, "mcp/gateway.py", "from fastmcp import Client\n")
     _write(package_root, "mcp/servers/metrics/server.py", "import mcp\n")
     _write(package_root, "actions/linear.py", "from smokejumper.contracts import Conclusion\n")

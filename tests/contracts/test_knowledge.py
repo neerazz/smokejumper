@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from smokejumper.contracts import KnowledgeBundle, KnowledgeItem
 
 EPISODE: dict[str, object] = {
+    "schema_version": 1,
     "content": "2026-06-02: same 5xx pattern, cause was a stale connection pool",
     "source_ref": "episode:0192e0a1-0000-7000-8000-00000000f001",
     "valid_at": "2026-06-02T09:00:00Z",
@@ -21,6 +22,7 @@ EPISODE: dict[str, object] = {
 def test_bundle_round_trips_json() -> None:
     bundle = KnowledgeBundle.model_validate(
         {
+            "schema_version": 1,
             "episodes": [EPISODE],
             "recipes": [EPISODE | {"source_ref": "recipe:checkout-5xx"}],
             "tokens_used": 1240,
@@ -32,7 +34,7 @@ def test_bundle_round_trips_json() -> None:
 def test_graph_paths_default_empty() -> None:
     """v1 retrieval is episodes + recipes; the graph lists exist so the boundary
     does not change shape when ≤2-hop expansion lands behind `MemoryPort`."""
-    bundle = KnowledgeBundle.model_validate({"tokens_used": 0})
+    bundle = KnowledgeBundle.model_validate({"schema_version": 1, "tokens_used": 0})
     assert bundle.graph_paths == []
     assert bundle.federated == []
 
@@ -54,6 +56,6 @@ def test_an_item_needs_a_source_ref() -> None:
 
 def test_tokens_used_is_required_and_non_negative() -> None:
     with pytest.raises(ValidationError):
-        KnowledgeBundle.model_validate({})
+        KnowledgeBundle.model_validate({"schema_version": 1})
     with pytest.raises(ValidationError):
-        KnowledgeBundle.model_validate({"tokens_used": -1})
+        KnowledgeBundle.model_validate({"schema_version": 1, "tokens_used": -1})

@@ -1,4 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1660" height="1560" viewBox="0 0 1660 1560" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1660" height="1560" viewBox="0 0 1660 1560" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="component-title component-desc">
+  <title id="component-title">Smokejumper v1 layered component architecture</title>
+  <desc id="component-desc">Target v1 component view showing channels, deterministic ingestion and actions, LangGraph intelligence, knowledge, governed MCP tools, observability, and the three-service runtime foundation. Current implementation status remains normative in SPEC.md.</desc>
   <rect width="1660" height="1560" fill="#ffffff"/>
 
   <!-- ═══ Title ═══ -->
@@ -25,7 +27,7 @@
   <g font-size="11.5" fill="#5b6b7a" text-anchor="middle">
     <text x="330" y="196">webhook · in · Alertmanager in lab</text>
     <text x="548" y="196">webhook · in · SaaS, replayed</text>
-    <text x="766" y="196">events v2 · in · SaaS, replayed</text>
+    <text x="766" y="196">webhook v3 · signed raw body</text>
     <text x="984" y="196">JSON webhook · in</text>
     <text x="1202" y="196">@mention · buttons · in/out</text>
     <text x="1420" y="196">tickets · out · via TicketingPort</text>
@@ -73,20 +75,20 @@
     <text x="245" y="544" font-size="17" font-weight="700" fill="#0b7285" text-anchor="middle">INGESTION</text>
 
     <rect x="76" y="576" width="338" height="142" rx="8" fill="#ffffff" stroke="#8a99a8"/>
-    <text x="90" y="600" font-size="15" font-weight="700" fill="#1f2d3a">Receiver — no LLM, no writes</text>
-    <text x="90" y="622" font-size="12.5" fill="#3d4852">Normalizes every source into one</text>
-    <text x="90" y="639" font-size="12.5" fill="#3d4852">AgentEvent; verifies per-source HMAC,</text>
-    <text x="90" y="656" font-size="12.5" fill="#3d4852">fingerprints, dedupes, and coalesces</text>
-    <text x="90" y="673" font-size="12.5" fill="#3d4852">storms before anything thinks.</text>
-    <text x="90" y="690" font-size="12.5" fill="#3d4852">(B1 → B2)</text>
+    <text x="90" y="600" font-size="15" font-weight="700" fill="#1f2d3a">Receiver — deterministic admission</text>
+    <text x="90" y="621" font-size="12.5" fill="#3d4852">Normalizes every source into one</text>
+    <text x="90" y="638" font-size="12.5" fill="#3d4852">AgentEvent; verifies per-source transport,</text>
+    <text x="90" y="656" font-size="12.5" fill="#3d4852">fingerprints and dedupes, then commits</text>
+    <text x="90" y="673" font-size="12.5" fill="#3d4852">a Postgres outbox row before Redis.</text>
+    <text x="90" y="690" font-size="12.5" fill="#3d4852">(B1 → B2 · storm coalescing planned)</text>
 
     <rect x="76" y="734" width="338" height="142" rx="8" fill="#ffffff" stroke="#8a99a8"/>
     <text x="90" y="758" font-size="15" font-weight="700" fill="#1f2d3a">Event inbox — Redis Streams</text>
     <text x="90" y="780" font-size="12.5" fill="#3d4852">Durable at-least-once buffer between</text>
     <text x="90" y="797" font-size="12.5" fill="#3d4852">bursty sources and the agent graph.</text>
-    <text x="90" y="814" font-size="12.5" fill="#3d4852">Consumer group with XAUTOCLAIM</text>
-    <text x="90" y="831" font-size="12.5" fill="#3d4852">recovery; the storm brake keeps</text>
-    <text x="90" y="848" font-size="12.5" fill="#3d4852">criticals moving when depth spikes.</text>
+    <text x="90" y="814" font-size="12.5" fill="#3d4852">Current: consumer group + durable</text>
+    <text x="90" y="831" font-size="12.5" fill="#3d4852">outbox retry. Target: XAUTOCLAIM</text>
+    <text x="90" y="848" font-size="12.5" fill="#3d4852">recovery and storm brake.</text>
 
     <rect x="76" y="892" width="338" height="172" rx="8" fill="#ffffff" stroke="#8a99a8"/>
     <text x="90" y="916" font-size="15" font-weight="700" fill="#1f2d3a">AgentEvent — contract B2</text>
@@ -212,18 +214,18 @@
   <rect x="60" y="1284" width="1540" height="186" rx="10" fill="#fffdf5" stroke="#b8a800"/>
   <text x="84" y="1314" font-size="17" font-weight="700" fill="#5c5400">HOW IT WORKS — one incident, end to end</text>
   <g font-size="12.5" fill="#3d4852">
-    <text x="84" y="1344">1 · An alert fires. The Receiver verifies its signature, normalizes it to an AgentEvent, and either dedupes it into</text>
-    <text x="98" y="1361">an open event or coalesces a storm of them into one. No model has run yet.</text>
-    <text x="84" y="1387">2 · The event lands on Redis Streams. The Governor decides how many investigations may run at once, and</text>
-    <text x="98" y="1404">under a storm only criticals get dequeued.</text>
+    <text x="84" y="1344">1 · Current: the Receiver verifies the source, normalizes to AgentEvent, dedupes, and commits a Postgres outbox row.</text>
+    <text x="98" y="1361">Target: it also coalesces storms. No model has run yet.</text>
+    <text x="84" y="1387">2 · The outbox dispatches to Redis Streams at least once. Current: one consumer group; target: Governor</text>
+    <text x="98" y="1404">concurrency, stale-pending reclaim, and the storm brake.</text>
     <text x="84" y="1430">3 · The supervisor wakes and retrieves memory — similar past incidents and matching runbooks — then</text>
     <text x="98" y="1447">plans which specialists can answer the question the alert is really asking.</text>
     <text x="856" y="1344">4 · Specialists run in parallel, each stateless and budgeted, calling read-tier tools through the one MCP gateway.</text>
     <text x="870" y="1361">A privileged call suspends the entire run until a human approves it in Slack with a single-use token.</text>
     <text x="856" y="1387">5 · Findings aggregate into exactly one Conclusion (B6) with confidence and evidence references. Nothing</text>
     <text x="870" y="1404">downstream of this contract is allowed to call a model.</text>
-    <text x="856" y="1430">6 · Actions create or update one ticket per fingerprint and post a Slack receipt. The recorder holds the whole</text>
-    <text x="870" y="1447">trace as JSONL, and replay re-runs it from the recorded model and tool outputs.</text>
+    <text x="856" y="1430">6 · Current Actions writes one run-idempotent fixture ticket; target adds Linear and Slack receipts. The recorder</text>
+    <text x="870" y="1447">holds the trace as JSONL, and replay re-runs it from recorded model and tool outputs.</text>
   </g>
 
   <!-- ═══ Legend ═══ -->

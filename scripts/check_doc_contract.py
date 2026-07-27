@@ -22,6 +22,9 @@ README_FORBIDDEN_TOKENS = (
     "LINEAR_API_KEY",
     "localhost:",
 )
+README_STATUS_PATTERN = re.compile(
+    r"\b(?:implemented|landed|outstanding)\b|\bnot yet\b|status:", re.I
+)
 
 MARKDOWN_LINK = re.compile(r"!?(?:\[[^\]]*\])\(([^)]+)\)")
 
@@ -70,6 +73,13 @@ def validate(root: Path) -> list[str]:
             errors.append(
                 f"README.md contains forbidden normative token {token!r}; link to SPEC.md instead"
             )
+
+    status_claim = README_STATUS_PATTERN.search(readme)
+    if status_claim:
+        errors.append(
+            "README.md contains implementation-status language "
+            f"{status_claim.group(0)!r}; link to SPEC.md §12 instead"
+        )
 
     for heading in REQUIRED_SPEC_HEADINGS:
         if heading not in spec:

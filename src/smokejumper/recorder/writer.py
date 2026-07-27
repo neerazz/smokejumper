@@ -32,7 +32,9 @@ class Recorder:
     def __init__(self, log_dir: Path) -> None:
         self._dir = log_dir
         self._dir.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now(tz=UTC).strftime("%Y-%m-%dT%H%M%S")
+        # Microseconds make repeated app factories in one process collision-free;
+        # PID alone does not distinguish two Recorder instances in the same second.
+        stamp = datetime.now(tz=UTC).strftime("%Y-%m-%dT%H%M%S-%f")
         self.path = self._dir / f"audit-{stamp}-{os.getpid()}.jsonl"
         # A lock rather than an async primitive: the write itself is blocking, and
         # the critical section is one append. Holding a threading lock across it
@@ -79,6 +81,7 @@ class Recorder:
         """Convenience wrapper that builds the AuditEvent."""
         return self.append(
             AuditEvent(
+                schema_version=1,
                 run_id=run_id,
                 seq=1,  # replaced by append(); the counter is the recorder's job
                 ts=datetime.now(tz=UTC),

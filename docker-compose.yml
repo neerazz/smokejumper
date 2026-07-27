@@ -1,5 +1,5 @@
-# The default stack is three services (SPEC 2c). `lab`, `fixtures`, and `obs`
-# services arrive with M1 and M6 and are not declared until they exist.
+# The default stack is three services (SPEC 2c). `lab` and `obs` services arrive
+# with M1 and M6 and are not declared until they exist; `fixtures` was removed.
 #
 # The project name is fixed so the stack, its volumes, and its network do not
 # change identity when the checkout directory is named something else.
@@ -46,14 +46,17 @@ services:
         condition: service_healthy
     environment:
       SMOKEJUMPER_ENV: ${SMOKEJUMPER_ENV:-local}
+      # Read by langgraph-checkpoint-postgres at import time. Keep this in the
+      # process environment; setting it through Python is too late (SPEC 2).
+      LANGGRAPH_STRICT_MSGPACK: "true"
       SMOKEJUMPER__DATABASE__URL: postgresql+psycopg://smokejumper:${POSTGRES_PASSWORD:-smokejumper}@postgres:5432/smokejumper
       SMOKEJUMPER__REDIS__URL: redis://redis:6379/0
       # The token Datadog is configured to send as X-Smokejumper-Token. Empty by
       # default, and an empty secret rejects every delivery (SPEC 5.1) rather than
       # accepting unauthenticated alerts.
       SMOKEJUMPER__WEBHOOKS__DATADOG__SECRET: ${SMOKEJUMPER__WEBHOOKS__DATADOG__SECRET:-}
-      # Same fail-closed default for every other source. PagerDuty and Grafana
-      # send a shared token; the generic endpoint signs the body.
+      # Same fail-closed default for every other source. PagerDuty signs the raw
+      # body, Grafana sends a shared token, and the generic endpoint signs the body.
       SMOKEJUMPER__WEBHOOKS__PAGERDUTY__SECRET: ${SMOKEJUMPER__WEBHOOKS__PAGERDUTY__SECRET:-}
       SMOKEJUMPER__WEBHOOKS__GRAFANA__SECRET: ${SMOKEJUMPER__WEBHOOKS__GRAFANA__SECRET:-}
       SMOKEJUMPER__WEBHOOKS__GENERIC__SECRET: ${SMOKEJUMPER__WEBHOOKS__GENERIC__SECRET:-}

@@ -51,8 +51,9 @@ def test_schema_holds_exactly_the_tables_with_writers(repo_root: Path) -> None:
     """Asserted as an exact set, not by membership.
 
     The point is to catch a table created before the code that writes it. Each
-    name below has a writer today: `events` from the Receiver, `runs` and
-    `tickets` from the worker. `approvals` (M5) and `episodes` (M3) are
+    name below has a writer today: `events` from the Receiver, `runs`, `tickets`,
+    and the retry-idempotency `ticket_actions` ledger from the worker. `approvals`
+    (M5) and `episodes` (M3) are
     deliberately absent, and adding either early should fail here.
     """
     tables = _query(
@@ -61,7 +62,13 @@ def test_schema_holds_exactly_the_tables_with_writers(repo_root: Path) -> None:
         " WHERE table_schema = 'public' ORDER BY table_name",
     )
 
-    assert tables.splitlines() == ["alembic_version", "events", "runs", "tickets"]
+    assert tables.splitlines() == [
+        "alembic_version",
+        "events",
+        "runs",
+        "ticket_actions",
+        "tickets",
+    ]
 
 
 def _expected_head(repo_root: Path) -> str:

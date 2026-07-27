@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -116,8 +117,9 @@ async def admit(
             "source": event.source.value,
             "fingerprint": event.fingerprint,
             "received_at": event.received_at,
-            # The AgentEvent, not the vendor body: `payload` is the normalized
-            # index. The raw body's home is the JSONL audit record (SPEC 5.8).
+            # The durable B2 outbox envelope. `raw` is the normalizer's parsed
+            # source map, not the exact inbound bytes; exact B1 recording remains
+            # the explicit M1 gap in SPEC §12.
             "payload": event.model_dump_json(),
         },
     )
@@ -155,6 +157,98 @@ async def quarantine(
         ),
         {"id": event_id, "source": source, "received_at": received_at, "reason": reason},
     )
+
+
+async def event_for_queue(
+    connection: AsyncConnection,
+    *,
+    event_id: str,
+) -> tuple[AgentEvent, str | None] | None:
+    """Lock one admitted event and return its payload plus delivery receipt.
+
+    The row lock serializes the request-path fast dispatch with the background
+    retry loop. If another dispatcher wins, the waiter reads the committed Redis
+    message id instead of XADDing a duplicate.
+    """
+    row = (
+        await connection.execute(
+            text(
+                """
+                SELECT payload, queue_message_id
+                  FROM events
+                 WHERE id = :event_id
+                   AND quarantined = false
+                 FOR UPDATE
+                """
+            ),
+            {"event_id": event_id},
+        )
+    ).first()
+    if row is None:
+        return None
+    payload: dict[str, Any] = row.payload
+    return AgentEvent.model_validate(payload), row.queue_message_id
+
+
+async def mark_queued(
+    connection: AsyncConnection,
+    *,
+    event_id: str,
+    message_id: str,
+    queued_at: datetime,
+) -> None:
+    """Persist the Redis receipt for a successfully published event."""
+    await connection.execute(
+        text(
+            """
+            UPDATE events
+               SET queued_at = :queued_at,
+                   queue_message_id = :message_id
+             WHERE id = :event_id
+               AND queue_message_id IS NULL
+            """
+        ),
+        {"event_id": event_id, "message_id": message_id, "queued_at": queued_at},
+    )
+
+
+async def pending_queue_event_ids(
+    connection: AsyncConnection,
+    *,
+    limit: int = 100,
+) -> list[str]:
+    """Oldest durable events not yet acknowledged as published to Redis."""
+    rows = (
+        await connection.execute(
+            text(
+                """
+                SELECT id
+                  FROM events
+                 WHERE quarantined = false
+                   AND queued_at IS NULL
+              ORDER BY received_at
+                 LIMIT :limit
+                """
+            ),
+            {"limit": limit},
+        )
+    ).all()
+    return [str(row.id) for row in rows]
+
+
+async def pending_queue_count(connection: AsyncConnection) -> int:
+    """Number of admitted events still waiting for Redis publication."""
+    value = await connection.scalar(
+        text(
+            """
+            SELECT count(*)
+              FROM events
+             WHERE quarantined = false
+               AND queued_at IS NULL
+            """
+        )
+    )
+    return int(value or 0)
 
 
 async def close_window(

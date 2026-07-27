@@ -17,11 +17,16 @@ concurrency:
 jobs:
   gates:
     runs-on: ubuntu-latest
+    env:
+      EVIDENCE_DIR: .artifacts/verification/ci/${{ github.sha }}/gates
     steps:
       - uses: actions/checkout@v4
 
+      - name: Prepare gate evidence directory
+        run: mkdir -p "$EVIDENCE_DIR"
+
       - name: Documentation contract
-        run: python3 scripts/check_doc_contract.py
+        run: python3 scripts/check_doc_contract.py 2>&1 | tee "$EVIDENCE_DIR/documentation.txt"
 
       - uses: astral-sh/setup-uv@v5
         with:
@@ -33,22 +38,31 @@ jobs:
         run: uv sync --frozen --all-groups
 
       - name: Lint
-        run: uv run ruff check .
+        run: uv run ruff check . 2>&1 | tee "$EVIDENCE_DIR/ruff-check.txt"
 
       - name: Format
-        run: uv run ruff format --check .
+        run: uv run ruff format --check . 2>&1 | tee "$EVIDENCE_DIR/ruff-format.txt"
 
       - name: Types
-        run: uv run pyright
+        run: uv run pyright 2>&1 | tee "$EVIDENCE_DIR/pyright.txt"
 
       - name: Tests
-        run: uv run pytest
+        run: uv run pytest 2>&1 | tee "$EVIDENCE_DIR/pytest.txt"
+
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smokejumper-gates-${{ github.sha }}
+          path: .artifacts/
 
   stack:
     # Separate job so a lint failure does not wait on containers, and so the
     # integration result is legible on its own.
     runs-on: ubuntu-latest
     env:
+      COMPOSE_PROJECT_NAME: smokejumper-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      EVIDENCE_DIR: .artifacts/verification/ci/${{ github.sha }}/stack
       # Generated here, not read from a repository secret. This token only
       # authenticates a test webhook against a throwaway stack, so it is not a
       # credential — and requiring a secret meant the ingestion tests skipped
@@ -65,6 +79,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Prepare stack evidence directory
+        run: mkdir -p "$EVIDENCE_DIR"
+
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
@@ -79,7 +96,7 @@ jobs:
         run: python3 scripts/check_host_ports.py
 
       - name: Boot the default stack
-        run: docker compose up -d --build --wait
+        run: docker compose -p "$COMPOSE_PROJECT_NAME" up -d --build --wait
 
       # SMOKEJUMPER_TEST_STACK=1 turns the integration skips into hard
       # requirements. Without it these tests would pass by not running, which is
@@ -98,16 +115,30 @@ jobs:
           fi
 
       - name: Configuration validates inside the container
-        run: docker compose exec -T app smokejumper check-config
+        run: docker compose -p "$COMPOSE_PROJECT_NAME" exec -T app smokejumper check-config
+
+      - name: Capture stack evidence
+        if: always()
+        run: |
+          docker compose -p "$COMPOSE_PROJECT_NAME" ps > "$EVIDENCE_DIR/compose-ps.txt" 2>&1 || true
+          docker compose -p "$COMPOSE_PROJECT_NAME" exec -T app alembic current > "$EVIDENCE_DIR/alembic-head.txt" 2>&1 || true
+          curl --fail --silent http://127.0.0.1:8000/healthz > "$EVIDENCE_DIR/healthz.json" 2>&1 || true
+
+      - name: Upload stack evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smokejumper-stack-${{ github.sha }}
+          path: .artifacts/
 
       - name: Diagnostics on failure
         if: failure()
-        run: docker compose ps && docker compose logs --no-color
+        run: |
+          docker compose -p "$COMPOSE_PROJECT_NAME" ps
+          docker compose -p "$COMPOSE_PROJECT_NAME" logs --no-color
 
-      # No `-v`. docker-compose.yml pins `name: smokejumper`, so this acts on
-      # the committed default project, and SPEC 12 forbids `-v` there because it
-      # deletes the Postgres and Redis volumes. Harmless on an ephemeral runner,
-      # destructive on a self-hosted one and in anything copied from here.
+      # The CI-specific project name makes these volumes disposable without ever
+      # touching a developer's committed `smokejumper` project (SPEC 12).
       - name: Tear down
         if: always()
-        run: docker compose down
+        run: docker compose -p "$COMPOSE_PROJECT_NAME" down -v

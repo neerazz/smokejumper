@@ -10,9 +10,11 @@ from smokejumper.contracts import DistillationCandidate
 RUN_ID = "0192f0a1-0000-7000-8000-000000000001"
 FINGERPRINT = "779f0b514e31fc4b83fa0d1dcad8c3498fe929e0c2a86b43d05bd4a41bda5e86"
 CANDIDATE: dict[str, object] = {
+    "schema_version": 1,
     "run_id": RUN_ID,
     "fingerprint": FINGERPRINT,
     "conclusion": {
+        "schema_version": 1,
         "run_id": RUN_ID,
         "fingerprint": FINGERPRINT,
         "status": "root_caused",
@@ -36,5 +38,10 @@ def test_candidate_round_trips_json() -> None:
 def test_a_candidate_carries_the_conclusion_it_was_distilled_from() -> None:
     with pytest.raises(ValidationError):
         DistillationCandidate.model_validate(
-            {"run_id": RUN_ID, "fingerprint": FINGERPRINT, "closed_at": "2026-07-26T17:12:00Z"}
+            {
+                "schema_version": 1,
+                "run_id": RUN_ID,
+                "fingerprint": FINGERPRINT,
+                "closed_at": "2026-07-26T17:12:00Z",
+            }
         )

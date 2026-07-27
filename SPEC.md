@@ -5,9 +5,9 @@
 > [component diagram](architecture/smokejumper-components.svg); this document refines it into
 > contracts, component behavior, flows, data, and verifiable milestones.
 >
-> **Status: the alert→conclusion→ticket path is implemented and verified end to end 2026-07-26
-> (M0, plus M1's Datadog ingestion, recorder, and worker, plus M2's actions). Triage is
-> deterministic, not model-backed — see §5.3a. Reviewed 2026-07-10; architecture
+> **Status: M0 and the HTTP alert→deterministic conclusion→fixture-ticket vertical slice are
+> implemented and verified end to end as of 2026-07-26; M1 is partially complete and M2–M6 remain
+> planned. Triage is deterministic, not model-backed — see §5.3a. Reviewed 2026-07-10; architecture
 > updated 2026-07-25; scope subtracted 2026-07-26.** The 2026-07-25 pass added the local
 > incident lab (§2c), per-environment configuration (§2d), one MCP domain (§5.5), OTel/Phoenix,
 > and the prompt registry — decisions 11–15. The 2026-07-26 subtraction pass removed five layers
@@ -22,8 +22,8 @@ semantics, prerequisites, operator inputs, build order, commands, and acceptance
 live here. The other repository documents have narrower jobs:
 
 - [`README.md`](README.md) is a non-normative landing page. It may summarize the purpose and
-  link here, but it must not carry its own setup commands, ports, dependency versions, config
-  values, or milestone requirements.
+  link here, but it must not carry its own implementation status, setup commands, ports,
+  dependency versions, config values, or milestone requirements.
 - [`docs/adr/`](docs/adr/README.md) records *why* a decision was made and what would reopen it.
   ADRs are historical rationale, not a second current configuration manual.
 - [`architecture/`](architecture/) visualizes this specification. A diagram that disagrees
@@ -412,15 +412,26 @@ with every payload.
   distinct fingerprints from one source in 5 min ⇒ emit ONE `storm` AgentEvent that wraps the
   set; per-alert events are recorded but not enqueued) — **storm coalescing is outstanding**.
 - Failure mode: unverifiable payload → 401 + recorder entry; unparseable → quarantine table + 202.
-  **Outstanding:** the 401 logs but does not yet write its recorder entry.
+  **Outstanding:** rejected and quarantined deliveries do not yet write exact B1 bytes to the
+  recorder; quarantine currently retains only source, timestamp, and reason in Postgres.
 
 ### 5.2 Queue — Redis Streams **(implemented)**
 - Stream `agentevents`, consumer group `intelligence`. At-least-once, and the worker acknowledges
   only after its transaction commits: acking first would drop an incident on any later failure.
-- **Idempotency is the ticket index, not `event.id`.** A redelivered message re-runs triage and
-  reaches the same Conclusion, then `actions` finds the open ticket for that fingerprint and
-  updates it. That is the same path a genuine duplicate takes, so at-least-once needs no separate
-  dedupe table.
+- Event admission is a durable Postgres outbox: the `events` row commits with `queued_at = NULL`,
+  the request path attempts immediate XADD, and a process-lifetime dispatcher retries every pending
+  row until its Redis message id is stored. Redis failure therefore cannot turn a sender retry into
+  a permanently suppressed, never-queued duplicate, and the worker never races an uncommitted event
+  row. The remaining Redis-XADD/Postgres-receipt edge is intentionally at-least-once, not at-most-once.
+- Immediate transport duplicates are absorbed by the Receiver and never reach this stream. Queue
+  redelivery is a different case: once reclaim lands, the same queued event may be processed again
+  after a crash. Exactly-one-ticket is already protected by the partial unique fingerprint index;
+  the fixture action is protected by a durable `ticket_actions` record keyed by the event UUID/run
+  id. The run remains `running` until its action AuditEvent is fsynced; a retry reuses the action
+  receipt, records `replayed: true`, and closes a complete JSONL byte range without repeating the
+  ticket write. A future external adapter must preserve the same `(fingerprint, run_id)` contract.
+  The current worker has no stale-pending reclaim yet (§12 M1 packet 5), so documentation must not
+  claim that retry path is complete.
 - A message that cannot be parsed is acked and logged rather than retried forever, because one
   poison payload would otherwise starve every incident behind it. A run that *fails* is left
   pending, so it can be retried.
@@ -446,8 +457,10 @@ with every payload.
 `intelligence/triage.py` turns an `AgentEvent` into a `Conclusion` (B6) without calling a model.
 This is the stage the worker runs, and it is a real implementation rather than a stub:
 
-- Every finding is derived from data the alert carries — monitor identity, severity, entity set,
-  delivery count — so each is checkable against the recorded event.
+- Every finding is derived from data the queued alert carries — monitor identity, severity, and
+  entity set — so each is checkable against the recorded event. The Receiver's relational
+  `dedupe_count` may increase after the immutable queue message is published; deterministic triage
+  therefore does not pretend that the initial B2 carries a live storm count.
 - The status ladder stops at `needs_human` (escalating severity) or `inconclusive`. It never
   reaches `root_caused` or `mitigated`, because a root cause needs metric history, a deploy
   timeline, or log correlation, and none of those exist before the read-tier tools at M5. A
@@ -457,7 +470,7 @@ This is the stage the worker runs, and it is a real implementation rather than a
 - It is deterministic, which is what makes replay meaningful: the same event yields the same B6.
 
 **Where the model goes.** A model-backed implementation replaces this behind the same signature,
-`triage(event) -> Conclusion`, calling through `ports/model.py`. Nothing else in the pipeline
+`triage(event, *, run_id) -> Conclusion`, calling through `ports/model.py`. Nothing else in the pipeline
 changes: the worker, the actions stage, the audit record, and the ticket contract are all
 indifferent to how the Conclusion was reached. Selecting it is `SMOKEJUMPER__PORTS__MODEL` moving
 from `RecordedModel` to `DirectProvider` plus a provider credential (§11.3).
@@ -516,7 +529,14 @@ its endpoint and its tool allowlist, so a remote server cannot widen its own sur
 advertising new tools. OTLP spans are read-side telemetry; JSONL remains authoritative.
 
 ### 5.6 Actions — deterministic, no LLM
-- Input: Conclusion (B6). Fingerprint rules: open ticket exists for fingerprint ⇒ update
+
+**Current slice:** `actions/service.py` writes a fixture ticket in Postgres and the partial unique
+index guarantees one open ticket per fingerprint under concurrency. It does not call an external
+provider. The provider-neutral adapter, Linear GraphQL implementation, Slack receipt, and durable
+`(fingerprint, run_id)` external-action idempotency record are M2 work (§12); they are not implied by
+the working fixture path.
+
+- Target input: Conclusion (B6). Fingerprint rules: open ticket exists for fingerprint ⇒ update
   (comment + status), else create. Idempotency key = `(fingerprint, run_id)` — retries never
   double-post. Outputs: ticket via TicketingPort, Slack receipt (thread on the alerting
   channel message when Slack-sourced), platform findings write-back (stub).
@@ -542,7 +562,7 @@ advertising new tools. OTLP spans are read-side telemetry; JSONL remains authori
 ### 5.8 Flight Recorder + replay harness
 - **Sink = append-only JSONL files in the log directory** (`logs/` by default,
   `SMOKEJUMPER_LOG_DIR` to override): one file per UTC day with a timestamp suffix,
-  `audit-<YYYY-MM-DD>T<HHMMSS>.jsonl` (new suffix per process start, so restarts never
+  `audit-<YYYY-MM-DD>T<HHMMSS>-<microseconds>-<pid>.jsonl` (unique per recorder/process start, so restarts never
   interleave). One AuditEvent per line. No retention policy — files accumulate; rotation is
   the operator's business.
 - **Streamable:** each event is also emitted on an in-process async broadcast channel;
@@ -601,14 +621,18 @@ not close.
 
 ### 5.11 Health and operator surface **(implemented)**
 
-`GET /healthz` reports Postgres, Redis, **and the worker**, and returns 503 if any is down. The
-worker is included because its death is the quietest failure the system has: the API keeps
+`GET /healthz` reports Postgres connectivity, the **applied Alembic head**, Redis, the worker, and
+the durable outbox dispatcher,
+and returns 503 if any is down or stale. A reachable database at the wrong revision is not ready:
+the code can connect and still fail on its first real query. The worker is included because its
+death is the quietest failure the system has: the API keeps
 returning 202 and the queue keeps growing while nothing investigates, so an orchestrator that only
 saw the datastores would keep a useless container alive. A dead worker reports
 `dead: <ExceptionName>`, because "dead" alone does not say where to look.
 
-Two values are reported but do **not** gate the status code: `recorder_write_failures` and
-`queue`. A recorder failure is serious — JSONL is the audit source of truth (§5.8) — but it
+Three values are reported but do **not** gate the status code: `recorder_write_failures`,
+`outbox_pending`, and `queue`. A recorder failure is serious — JSONL is the audit source of truth
+(§5.8) — but it
 does not mean the process cannot serve, and flapping the container on it would lose more than it
 saves. A backlog is a symptom whose healthy range depends on load.
 
@@ -658,9 +682,10 @@ no ticket unless asked.
 
 ## 7. Data model (Postgres, one database)
 
-`events` (B2, quarantine flag, `window_closed_at`) · `runs` (fingerprint, status, budgets, audit-log file +
+`events` (B2, quarantine flag, `window_closed_at`, durable queue receipt) · `runs` (fingerprint, status, budgets, audit-log file +
 offsets — the index into the JSONL audit sink; B8 events themselves live in `logs/`, not
-Postgres) · `approvals` (B5) · `tickets` (fingerprint ↔ TicketRef map, provider-tagged) ·
+Postgres) · `ticket_actions` (event/run-idempotent fixture action receipt) · `approvals` (B5) ·
+`tickets` (fingerprint ↔ TicketRef map, provider-tagged) ·
 `episodes` (case embeddings, pgvector, bi-temporal `valid_at`/`recorded_at`) ·
 `checkpoints` (LangGraph) · `alembic_version` (Alembic's own revision ledger — verified against the
 running database; earlier revisions of this section called it `schema_migrations`, which no
@@ -675,6 +700,9 @@ plus the `status` CHECK) and the `tickets` table. Its **partial unique index on 
 open rows is what makes "exactly one ticket per incident" a database guarantee** rather than an
 application convention: two workers concluding the same fingerprint concurrently would both pass a
 Python-level check.
+`0004_event_queue_outbox` adds the durable Postgres→Redis delivery receipt, the `ticket_actions`
+retry ledger, and the recovery trigger that closes the open fixture ticket in the same transaction
+that closes its event window.
 `tests/integration/test_schema_stack.py` derives head from these files and asserts the running
 database is at it, so a migration that did not run is caught rather than assumed.
 
@@ -714,9 +742,12 @@ account and no live model.
 
 **Acceptance (v1 exit).** With the default stack plus the `lab` and `obs` profiles up, all three
 acceptance sources — Grafana, Datadog, PagerDuty — are replayed from recorded payloads, each one
-twice. Per source that must produce one ticket created on first delivery and updated rather than
-duplicated on the second, one Slack receipt, and a complete recorder trace; `smokejumper eval`
-must then report at least 4 of 5 cases matching.
+twice. Per source the first delivery must produce one event, one run, one ticket, one Slack receipt,
+and a complete recorder trace; the immediate redelivery must be absorbed by the Receiver's open
+dedupe window, increment `dedupe_count`, and produce no second enqueue, run, ticket mutation, or
+receipt. Create-vs-update is a separate Actions contract: two distinct concluded runs with the same
+fingerprint must create once and update the still-open ticket once. `smokejumper eval` must then
+report at least 4 of 5 cases matching.
 
 **The acceptance trio and the lab end-to-end do different jobs, and they no longer share a
 source.** The trio proves three real payload *shapes* normalize and verify correctly, so all three
@@ -740,9 +771,11 @@ complete when §12's exit evidence for it exists.
   `prod` that refuses to start unsafe.
 - **M1** — an alert becomes a recorded, queued event. Flight Recorder, Receiver and normalizers,
   fingerprint/dedupe/storm, Redis Streams, and the `lab` profile. *Mostly landed: the recorder, all
-  five HTTP routes with their per-source verification, all five normalizers, dedupe, and the full
+  five HTTP routes with their per-source verification, all five normalizers, dedupe, the durable
+  Postgres→Redis outbox, retry-idempotent fixture actions, and the full
   producer/consumer path work end to end (§12 M1 packets 1–5). Outstanding: storm coalescing, the
-  recorder entry owed by a 401, the `lab` profile, and `smokejumper fixtures replay`.*
+  exact-B1 recorder entries owed by rejected/quarantined deliveries, the `lab` profile, and
+  `smokejumper fixtures replay`.*
 - **M2** — one alert reaches one ticket. `ModelProvider` against the chosen provider, supervisor
   graph, one specialist, Slack receipt, Linear create-vs-update.
 - **M3** — retrieval is real. `episodes` similarity plus recipes behind `MemoryPort`, cited in B6.
@@ -992,7 +1025,9 @@ not have to invent them:
    by anyone who observes it. The weakness is the vendor's, and pretending to verify a Datadog
    signature would be worse, because it would look like a control while checking something the
    sender cannot produce. An empty configured secret rejects every delivery rather than accepting
-   unauthenticated alerts.
+   unauthenticated alerts. **PagerDuty v3** uses its documented HMAC-SHA256 over the exact raw body;
+   `X-PagerDuty-Signature` may contain multiple comma-separated `v1=<hex>` values during rotation,
+   and any valid v1 digest is accepted. Grafana uses an operator-configured shared-token header.
 7. Approval tokens are opaque 256-bit random values; only a hash is stored with the bound
    `(thread_id, tool_call)` and expiry. Consumption is one atomic database update, so no token
    signing key is required.
@@ -1018,7 +1053,8 @@ ticket without a human in the loop. The rest below is planned.** A command stops
 when its milestone's exit evidence exists — not when it looks correct.
 
 M0's evidence: the three-service stack boots, `alembic upgrade head` applies from empty,
-`/healthz` reports both dependencies, `smokejumper check-config` validates inside the container,
+`/healthz` reports both dependencies, the applied schema head, the worker, and the outbox dispatcher,
+`smokejumper check-config` validates inside the container,
 and the five universal gates pass.
 
 The ingestion path's evidence, measured against the booted stack rather than in-process. Per
@@ -1035,7 +1071,8 @@ Alertmanager is admitted by peer network with no credential at all.
 `tests/integration/test_datadog_ingestion_stack.py` and
 `tests/integration/test_source_ingestion_stack.py` are that evidence, repeatable.
 
-Still planned, and still absent: storm coalescing, the recorder entry a 401 owes, the `lab`
+Still planned, and still absent: storm coalescing, exact-B1 recorder entries for rejected and
+quarantined deliveries, the `lab`
 profile, and every `smokejumper` subcommand beyond `check-config` — `fixtures replay`, `logs`,
 `replay`, and `eval` do not exist. The Conclusion reaching those tickets is deterministic triage
 (§5.3a), not a model: no provider is wired, so nothing yet reasons about *why* an alert fired.
@@ -1213,8 +1250,9 @@ docker compose down
    which must print one run id and nothing else because the acceptance set consumes its stdout.
 2. **Inbound persistence — LANDED:** `receiver/repository.py` with the quarantine path;
    401 for an unverifiable payload and 202 with a quarantine row for an unparseable one.
-   **Outstanding:** the 401 currently only logs. The *audit entry* it owes is a small change now
-   that packet 1 has landed, so a rejected delivery is visible in the log and in no durable record
+   **Outstanding:** rejected and quarantined deliveries currently omit exact B1 bytes. The audit
+   entry they owe is a small change now that packet 1 has landed; a rejected delivery is visible
+   only in process logs, while a quarantine row retains metadata and reason but not the raw bytes
    yet.
 3. **Normalizers — LANDED, all five:** `receiver/normalizers/datadog.py` plus
    `receiver/normalizers/sources.py` (PagerDuty, Grafana, Alertmanager, generic), each with a
@@ -1236,8 +1274,10 @@ docker compose down
    migration `0002_event_window_closed` (§7) and is idempotent. **Outstanding:** the 20-vs-21
    fingerprint storm boundary, the five-minute reset, and the single `kind=storm` enqueue.
 5. **Redis Streams — LANDED:** `queue/producer.py` XADDs to `agentevents` with a bounded `maxlen`,
-   and `worker.py` consumes the `intelligence` group beside the API, acking only after its
-   transaction commits. A failed run is left pending so it can be retried; an unparseable message
+   `receiver/delivery.py` retries durable `events` rows until the Redis receipt is persisted, and
+   `worker.py` consumes the `intelligence` group beside the API, acking only after its transaction
+   commits. The event UUID is reused as `run_id`, and `ticket_actions` suppresses the action on
+   redelivery. A failed run is left pending so it can be retried; an unparseable message
    is acked so one poison payload cannot starve the incidents behind it. `/healthz` reports the
    worker's liveness and the group's `{lag, pending}`, because a dead consumer is otherwise
    invisible (§5.11). **Outstanding:** at-least-once reclaim of another consumer's stale pending
@@ -1278,7 +1318,9 @@ event. M1 exits only when both are retained.
    GraphQL adapter, fingerprint lookup, create-vs-update, and `(fingerprint, run_id)` idempotency.
    GraphQL `errors` are inspected even on HTTP 200.
 6. **Golden end-to-end:** one fixture alert yields one recorded run, one B6, one ticket, and one
-   Slack receipt; redelivering the same payload updates instead of duplicating.
+   Slack receipt; an immediate transport redelivery is deduped before the queue. Exercise the
+   Actions update path with a second distinct concluded run carrying the same fingerprint, because
+   conflating those two cases would contradict §5.1's dedupe contract.
 
 The three owner inputs in §11.3 — provider credential, Slack app, Linear key — become blocking
 here. Every packet is buildable against fakes; only the live smoke needs them.
@@ -1386,7 +1428,8 @@ cp .env.example .env                    # fill only the M2 owner inputs from §1
 docker compose up -d --build
 docker compose --profile lab --profile obs up -d
 
-# Each source twice: the first delivery creates a ticket, the second must update it.
+# Each source twice: the first delivery creates the run/ticket; the immediate
+# redelivery must be absorbed by the Receiver's open dedupe window.
 for SOURCE in grafana datadog pagerduty; do
   docker compose exec -T app smokejumper fixtures replay --source "$SOURCE"
   docker compose exec -T app smokejumper fixtures replay --source "$SOURCE"
@@ -1407,7 +1450,7 @@ Every `smokejumper` invocation runs inside the deployment because all three need
 carriage return whenever a TTY is allocated, and a run id carrying one matches no record.
 
 Release proof is more than the transcript. Retain in the M6 evidence directory: `$RUN_ID`, the
-create-then-update ticket pair for each of the three sources, the Slack thread timestamp, the audit
-file and byte range, `eval-report.txt`, the Phoenix trace id, and the faultbox
+create-then-dedupe receipt for each acceptance source, a separate create-then-update Actions
+contract receipt, the Slack thread timestamp, the audit file and byte range, `eval-report.txt`, the Phoenix trace id, and the faultbox
 expected-vs-actual conclusion comparison. `smokejumper eval` reporting 4/5 with no ticket receipt
 is not acceptance.

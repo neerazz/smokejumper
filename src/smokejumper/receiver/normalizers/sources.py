@@ -122,7 +122,7 @@ def _entities_from_labels(labels: dict[str, Any]) -> list[Entity]:
         text = str(value).strip()
         if name in IDENTITY_TAG_KEYS and text:
             found.add((name, text))
-    return [Entity(type=k, id=v) for k, v in sorted(found)]
+    return [Entity(schema_version=1, type=k, id=v) for k, v in sorted(found)]
 
 
 def _build(
@@ -138,6 +138,7 @@ def _build(
     raw: dict[str, Any],
 ) -> AgentEvent:
     return AgentEvent(
+        schema_version=1,
         id=uuid4(),
         source=source,
         kind=EventKind.ALERT,
@@ -164,8 +165,8 @@ def _parse_iso(value: str, *, fallback: datetime) -> datetime:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def normalize_pagerduty(payload: dict[str, Any], *, received_at: datetime) -> list[AgentEvent]:
-    """PagerDuty v3 webhook. `event.data` holds the incident."""
+def _pagerduty_event(payload: dict[str, Any], *, received_at: datetime) -> AgentEvent:
+    """Build the incident identity shared by trigger and resolution handling."""
     if not isinstance(payload, dict):
         raise UnparseablePayload("body is not a JSON object")
 
@@ -175,27 +176,51 @@ def normalize_pagerduty(payload: dict[str, Any], *, received_at: datetime) -> li
 
     # dedup_key is PagerDuty's own idea of "same incident", which is precisely
     # what the fingerprint needs. incident.id changes per incident object.
-    key = _text(data, "dedup_key") or _text(data, "incident_key") or _text(data, "id")
+    key = _text(data, "dedup_key") or _text(data, "incident_key")
     if not key:
-        raise UnparseablePayload("dedup_key (or id) is required: it is the incident identity")
+        raise UnparseablePayload(
+            "dedup_key or incident_key is required: incident.id is reminted on re-trigger "
+            "and cannot identify a recurring condition"
+        )
 
     body_obj = _obj(data, "body")
     service_name = _text(_obj(data, "service"), "summary")
-    entities = [Entity(type="service", id=service_name)] if service_name else []
+    entities = [Entity(schema_version=1, type="service", id=service_name)] if service_name else []
 
-    return [
-        _build(
-            source=EventSource.PAGERDUTY,
-            key=key,
-            severity=_pagerduty_severity(data),
-            title=_text(data, "title") or _text(data, "summary"),
-            body=_text(body_obj, "details"),
-            entities=entities,
-            occurred_at=_parse_iso(_text(data, "created_at"), fallback=received_at),
-            received_at=received_at,
-            raw=payload,
-        )
-    ]
+    return _build(
+        source=EventSource.PAGERDUTY,
+        key=key,
+        severity=_pagerduty_severity(data),
+        title=_text(data, "title") or _text(data, "summary"),
+        body=_text(body_obj, "details"),
+        entities=entities,
+        occurred_at=_parse_iso(_text(data, "created_at"), fallback=received_at),
+        received_at=received_at,
+        raw=payload,
+    )
+
+
+def _pagerduty_is_resolved(payload: dict[str, Any]) -> bool:
+    event_type = _text(_obj(payload, "event"), "event_type").lower()
+    return event_type.endswith(".resolved") or event_type == "resolve"
+
+
+def normalize_pagerduty(payload: dict[str, Any], *, received_at: datetime) -> list[AgentEvent]:
+    """PagerDuty trigger payloads; resolutions are handled separately by the route."""
+    if not isinstance(payload, dict):
+        raise UnparseablePayload("body is not a JSON object")
+    if _pagerduty_is_resolved(payload):
+        return []
+    return [_pagerduty_event(payload, received_at=received_at)]
+
+
+def resolved_pagerduty(payload: dict[str, Any], *, received_at: datetime) -> list[AgentEvent]:
+    """The incident identity carried by a PagerDuty resolution, if any."""
+    if not isinstance(payload, dict):
+        raise UnparseablePayload("body is not a JSON object")
+    if not _pagerduty_is_resolved(payload):
+        return []
+    return [_pagerduty_event(payload, received_at=received_at)]
 
 
 def _label_batch(
@@ -203,6 +228,7 @@ def _label_batch(
     *,
     source: EventSource,
     received_at: datetime,
+    resolved: bool = False,
 ) -> list[AgentEvent]:
     """Shared shape for Grafana unified alerting and Alertmanager.
 
@@ -219,7 +245,8 @@ def _label_batch(
     for alert in alerts:
         if not isinstance(alert, dict):
             continue
-        if _text(alert, "status").lower() == "resolved":
+        is_resolved = _text(alert, "status").lower() == "resolved"
+        if is_resolved != resolved:
             continue
 
         labels = _obj(alert, "labels")
@@ -254,11 +281,35 @@ def normalize_grafana(payload: dict[str, Any], *, received_at: datetime) -> list
     return _label_batch(payload, source=EventSource.GRAFANA, received_at=received_at)
 
 
+def resolved_grafana(payload: dict[str, Any], *, received_at: datetime) -> list[AgentEvent]:
+    """Grafana incident identities whose dedupe windows must be closed."""
+    if not isinstance(payload, dict):
+        raise UnparseablePayload("body is not a JSON object")
+    return _label_batch(
+        payload,
+        source=EventSource.GRAFANA,
+        received_at=received_at,
+        resolved=True,
+    )
+
+
 def normalize_alertmanager(payload: dict[str, Any], *, received_at: datetime) -> list[AgentEvent]:
     """Prometheus Alertmanager webhook."""
     if not isinstance(payload, dict):
         raise UnparseablePayload("body is not a JSON object")
     return _label_batch(payload, source=EventSource.ALERTMANAGER, received_at=received_at)
+
+
+def resolved_alertmanager(payload: dict[str, Any], *, received_at: datetime) -> list[AgentEvent]:
+    """Alertmanager incident identities whose dedupe windows must be closed."""
+    if not isinstance(payload, dict):
+        raise UnparseablePayload("body is not a JSON object")
+    return _label_batch(
+        payload,
+        source=EventSource.ALERTMANAGER,
+        received_at=received_at,
+        resolved=True,
+    )
 
 
 def normalize_generic(payload: dict[str, Any], *, received_at: datetime) -> list[AgentEvent]:
@@ -277,7 +328,7 @@ def normalize_generic(payload: dict[str, Any], *, received_at: datetime) -> list
         for item in raw_entities:
             if isinstance(item, dict) and item.get("type") and item.get("id"):
                 seen.add((str(item["type"]).strip(), str(item["id"]).strip()))
-        entities = [Entity(type=t, id=i) for t, i in sorted(seen)]
+        entities = [Entity(schema_version=1, type=t, id=i) for t, i in sorted(seen)]
 
     severity_text = _text(payload, "severity").lower()
     try:

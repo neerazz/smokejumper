@@ -140,7 +140,7 @@ class FixtureTicketing:
         self.tickets: dict[str, FixtureTicket] = {}
 
     def _ref(self, ticket: FixtureTicket) -> TicketRef:
-        return TicketRef(provider=TicketProvider.LINEAR, external_id=ticket.id)
+        return TicketRef(schema_version=1, provider=TicketProvider.LINEAR, external_id=ticket.id)
 
     async def find_open_by_fingerprint(self, fingerprint: str) -> TicketRef | None:
         ticket = self.tickets.get(fingerprint)

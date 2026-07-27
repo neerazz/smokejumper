@@ -15,9 +15,9 @@ grant than twice.
 `events` is one table with a quarantine flag rather than two tables. A
 quarantined row is precisely an inbound payload that could not be normalized to
 an `AgentEvent` (SPEC 5.1), so it has no `payload` and no `fingerprint`; the
-check constraint makes that the only legal shape instead of a convention. The
-raw body stays in the JSONL audit record, which is the source of truth for
-payloads (SPEC 5.8) — Postgres holds the index, not the evidence.
+check constraint makes that the only legal shape instead of a convention. A
+normalized event row later became the durable B2 queue outbox in revision 0004;
+recording exact B1 bytes for rejected/quarantined requests remains an M1 gap.
 
 `runs.status` has no check constraint: SPEC 7 names the column but never
 enumerates the run lifecycle. M2 owns the lifecycle and adds the constraint with

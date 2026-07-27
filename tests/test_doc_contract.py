@@ -37,6 +37,23 @@ class DocumentationContractTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("README.md contains forbidden normative token", result.stdout)
 
+    def test_readme_cannot_own_moving_implementation_status(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "README.md").write_text(
+                "# Project\n\nStatus: only the Datadog source is implemented.\n",
+                encoding="utf-8",
+            )
+            (root / "SPEC.md").write_text(
+                "## 0. Documentation contract\n"
+                "## 11. Build prerequisites and operator inputs\n"
+                "## 12. Executable implementation plan\n",
+                encoding="utf-8",
+            )
+            result = self.run_checker(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("implementation-status language", result.stdout)
+
     def test_missing_local_markdown_link_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -5,19 +5,19 @@ Receiver is a very well-tested inbox.
 
 Three properties matter more than the loop itself:
 
-**At-least-once, made idempotent by the ticket index.** A consumer group redelivers
-anything not acknowledged, so a crash between `apply()` and `XACK` replays the
-message. That is safe because the second pass updates the existing ticket instead
-of filing a new one (`actions/service.apply`), which is the same code path a
-genuine duplicate alert takes.
+**At-least-once, with idempotent fixture actions today.** A consumer group can
+redeliver anything not acknowledged. The event UUID is reused as the run id, the
+partial unique fingerprint index prevents a second open ticket, and the durable
+`ticket_actions` row prevents a retry from repeating the fixture update. An M2
+external adapter must preserve that `(fingerprint, run_id)` contract itself.
 
 **Acknowledge only after the transaction commits.** Acking first would drop an
 incident on any failure after it, and a dropped incident is the one failure mode
 this system exists to prevent.
 
-**A failing message must not wedge the queue.** One bad payload retried forever
-starves every incident behind it, so failures are recorded, acked, and left in the
-pending log rather than blocking the stream.
+**A failing message must not wedge the queue.** An unparseable payload can never
+succeed, so it is logged and acknowledged. A processing failure may be transient,
+so it is logged but deliberately left pending for reclaim/retry.
 """
 
 from __future__ import annotations
@@ -29,7 +29,6 @@ import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, cast
-from uuid import uuid4
 
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
@@ -69,12 +68,14 @@ async def handle(
     event: AgentEvent,
 ) -> str:
     """Run one event all the way through. Returns the run status."""
-    run_id = uuid4()
+    # Stable across queue redelivery: the event UUID was durably assigned before
+    # publication and therefore is the run/action idempotency key.
+    run_id = event.id
     started = datetime.now(tz=UTC)
     start_offset = recorder.start_offset()
 
     async with engine.begin() as connection:
-        await service.open_run(
+        claim = await service.open_run(
             connection,
             run_id=run_id,
             event_id=event.id,
@@ -83,20 +84,18 @@ async def handle(
             audit_start_offset=start_offset,
             started_at=started,
         )
+    if claim.status == "concluded":
+        logger.info("run %s already concluded; suppressing redelivered action", run_id)
+        return claim.conclusion_status or "concluded"
 
     recorder.record(
         run_id=run_id,
         actor="worker",
         kind="event",
-        payload={
-            "event_id": str(event.id),
-            "fingerprint": event.fingerprint,
-            "source": event.source.value,
-            "severity": event.severity.value,
-        },
+        payload={"event": event.model_dump(mode="json")},
     )
 
-    conclusion = triage(event)
+    conclusion = triage(event, run_id=run_id)
     recorder.record(
         run_id=run_id,
         actor="triage",
@@ -119,9 +118,13 @@ async def handle(
             "ticket": outcome.external_id,
             "created": outcome.created,
             "update_count": outcome.update_count,
+            "replayed": outcome.replayed,
         },
     )
 
+    # The run remains `running` until the durable action line exists. A recorder
+    # failure therefore leaves the queue message pending; retry reads the action
+    # ledger, records `replayed: true`, and never repeats the ticket write.
     async with engine.begin() as connection:
         await service.close_run(
             connection,
@@ -136,7 +139,7 @@ async def handle(
         run_id,
         conclusion.status.value,
         outcome.external_id,
-        "opened" if outcome.created else "updated",
+        "replayed" if outcome.replayed else ("opened" if outcome.created else "updated"),
     )
     return conclusion.status.value
 

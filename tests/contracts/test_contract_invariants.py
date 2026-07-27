@@ -36,8 +36,15 @@ def test_the_boundary_models_are_all_exported() -> None:
 
 
 @pytest.mark.parametrize("model", EXPORTED_MODELS, ids=model_ids())
-def test_every_contract_carries_schema_version(model: type[Contract]) -> None:
-    assert model.model_fields["schema_version"].default == 1
+def test_every_contract_requires_schema_version(model: type[Contract]) -> None:
+    """An unversioned boundary payload must never be guessed into the current schema."""
+    assert model.model_fields["schema_version"].is_required()
+    with pytest.raises(ValidationError) as caught:
+        model.model_validate({})
+    assert any(
+        error["loc"] == ("schema_version",) and error["type"] == "missing"
+        for error in caught.value.errors()
+    )
 
 
 @pytest.mark.parametrize("model", EXPORTED_MODELS, ids=model_ids())

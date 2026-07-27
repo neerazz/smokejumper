@@ -13,6 +13,8 @@ scheme for all of them:
   vendor, not to this code.
 - **Generic HTTP callers** are ours to specify, so they use HMAC-SHA256 over the
   raw body (SPEC 11.5.6), which is replay-resistant per-payload.
+- **PagerDuty v3** signs the raw body with HMAC-SHA256 and sends one or more
+  `v1=<hex>` values in `X-PagerDuty-Signature`.
 - **Alertmanager offers nothing at all** — no signature, no token, not even a
   configurable header in the standard webhook config. The only control left is
   the network it connects from, so it is verified by peer address against an
@@ -36,6 +38,7 @@ DATADOG_TOKEN_HEADER = "X-Smokejumper-Token"  # noqa: S105
 
 # Ours to define, so it is a real signature (SPEC 11.5.6).
 GENERIC_SIGNATURE_HEADER = "X-Smokejumper-Signature"
+PAGERDUTY_SIGNATURE_HEADER = "X-PagerDuty-Signature"
 _SIGNATURE_PREFIX = "sha256="
 
 
@@ -83,6 +86,30 @@ def verify_hmac_signature(body: bytes, headers: Mapping[str, str], *, secret: st
         return False
     expected = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(presented.removeprefix(_SIGNATURE_PREFIX), expected)
+
+
+def verify_pagerduty_signature(
+    body: bytes,
+    headers: Mapping[str, str],
+    *,
+    secret: str,
+) -> bool:
+    """Verify PagerDuty v3's HMAC over the exact request body.
+
+    PagerDuty may include multiple comma-separated `v1=` values during secret
+    rotation. Any one valid digest authenticates the delivery.
+    """
+    if not secret:
+        return False
+    presented = _header(headers, PAGERDUTY_SIGNATURE_HEADER)
+    if presented is None:
+        return False
+    expected = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    candidates = [part.strip().removeprefix("v1=") for part in presented.split(",")]
+    return any(
+        part.strip().startswith("v1=") and hmac.compare_digest(candidate, expected)
+        for part, candidate in zip(presented.split(","), candidates, strict=True)
+    )
 
 
 def verify_source_ip(

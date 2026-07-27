@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -46,6 +47,28 @@ def _compose(service: str, *command: str) -> str:
 def _scalar(sql: str) -> str:
     return _compose(
         "postgres", "psql", "-U", "smokejumper", "-d", "smokejumper", "-t", "-A", "-c", sql
+    )
+
+
+def _await_scalar(sql: str, expected: str, *, timeout: float = 30.0) -> None:
+    deadline = time.monotonic() + timeout
+    latest = ""
+    while time.monotonic() < deadline:
+        latest = _scalar(sql)
+        if latest == expected:
+            return
+        time.sleep(0.25)
+    pytest.fail(f"query did not reach {expected!r}; last value={latest!r}: {sql}")
+
+
+def _compose_control(*args: str) -> None:
+    subprocess.run(
+        ["docker", "compose", *args],
+        cwd=Path(__file__).resolve().parents[2],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
 
 
@@ -122,6 +145,36 @@ def test_a_real_alert_is_persisted_and_enqueued(delivery: dict[str, Any], secret
     assert _stream_length() == before + 1
 
 
+def test_redis_outage_leaves_a_durable_event_that_dispatches_after_recovery(
+    delivery: dict[str, Any], secret: str
+) -> None:
+    """Admission survives Redis downtime; the outbox closes the crash window."""
+    accepted: dict[str, Any] = {}
+    _compose_control("stop", "redis")
+    try:
+        response = _post(delivery, token=secret)
+        assert response.status_code == 202
+        accepted = response.json()
+        assert accepted["status"] == "accepted"
+        assert accepted["queue_status"] == "pending"
+        assert accepted["queue_message_id"] is None
+        assert (
+            _scalar(f"SELECT queued_at IS NULL FROM events WHERE id = '{accepted['event_id']}'")
+            == "t"
+        )
+    finally:
+        _compose_control("start", "redis")
+
+    _await_scalar(
+        f"SELECT queued_at IS NOT NULL FROM events WHERE id = '{accepted['event_id']}'",
+        "t",
+    )
+    _await_scalar(
+        f"SELECT count(*) FROM ticket_actions WHERE run_id = '{accepted['event_id']}'",
+        "1",
+    )
+
+
 def test_redelivery_counts_against_the_same_incident(delivery: dict[str, Any], secret: str) -> None:
     """Exactly one ticket per fingerprint starts here: one row, one queue message."""
     assert _post(delivery, token=secret).json()["status"] == "accepted"
@@ -160,17 +213,45 @@ def test_concurrent_deliveries_do_not_race(delivery: dict[str, Any], secret: str
 def test_recovery_closes_the_window_so_a_retrigger_is_new(
     delivery: dict[str, Any], secret: str
 ) -> None:
-    assert _post(delivery, token=secret).json()["status"] == "accepted"
+    first = _post(delivery, token=secret).json()
+    assert first["status"] == "accepted"
+    fingerprint = first["fingerprint"]
+    _await_scalar(
+        f"SELECT count(*) FROM ticket_actions WHERE run_id = '{first['event_id']}'",
+        "1",
+    )
 
     recovery = _post({**delivery, "alert_transition": "Recovered"}, token=secret).json()
     assert recovery["status"] == "recovered"
     assert recovery["windows_closed"] == 1
+    assert (
+        _scalar(
+            "SELECT count(*) FROM tickets "
+            f"WHERE fingerprint = '{fingerprint}' AND closed_at IS NULL"
+        )
+        == "0"
+    )
 
     retrigger = _post(delivery, token=secret).json()
 
     assert retrigger["status"] == "accepted", "a re-trigger after recovery is a new incident"
     rows, _ = _rows_for(delivery["alert_id"])
     assert rows == 2
+    _await_scalar(
+        f"SELECT count(*) FROM ticket_actions WHERE run_id = '{retrigger['event_id']}'",
+        "1",
+    )
+    assert _scalar(f"SELECT count(*) FROM tickets WHERE fingerprint = '{fingerprint}'") == "2"
+    assert (
+        _scalar(
+            "SELECT count(*) FROM tickets "
+            f"WHERE fingerprint = '{fingerprint}' AND closed_at IS NULL"
+        )
+        == "1"
+    )
+    operator_view = httpx.get(f"{APP}/runs/{fingerprint}", timeout=15).json()
+    assert operator_view["run_id"] == retrigger["event_id"]
+    assert operator_view["ticket_updates"] == 0
 
 
 def test_recovery_does_not_rewrite_the_received_at_audit_field(

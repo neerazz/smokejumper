@@ -113,6 +113,7 @@ async def test_fixture_ticketing_creates_once_then_updates() -> None:
 
     ref = await ticketing.create(
         TicketDraft(
+            schema_version=1,
             fingerprint=fingerprint,
             run_id=run_id,
             title="disk full",
@@ -121,7 +122,7 @@ async def test_fixture_ticketing_creates_once_then_updates() -> None:
     )
     assert await ticketing.find_open_by_fingerprint(fingerprint) == ref
 
-    update = TicketUpdate(run_id=run_id, comment_md="still firing")
+    update = TicketUpdate(schema_version=1, run_id=run_id, comment_md="still firing")
     await ticketing.update(ref, update)
     assert ticketing.tickets[fingerprint].updates == [update]
 

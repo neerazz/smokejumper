@@ -20,7 +20,8 @@ FROM python:3.12-slim
 RUN useradd --system --create-home --uid 10001 smokejumper
 WORKDIR /app
 ENV PATH=/app/.venv/bin:$PATH \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    LANGGRAPH_STRICT_MSGPACK=true
 COPY --from=build /app/.venv /app/.venv
 COPY alembic.ini ./
 COPY migrations ./migrations

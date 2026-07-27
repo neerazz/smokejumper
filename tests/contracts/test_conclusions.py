@@ -10,16 +10,18 @@ from smokejumper.contracts import Assignment, Conclusion, ConclusionStatus, Find
 RUN_ID = "0192f0a1-0000-7000-8000-000000000001"
 FINGERPRINT = "779f0b514e31fc4b83fa0d1dcad8c3498fe929e0c2a86b43d05bd4a41bda5e86"
 FINDING: dict[str, object] = {
+    "schema_version": 1,
     "agent": "metrics-analyst",
     "hypothesis": "checkout 5xx follows the 17:00 deploy",
     "evidence": ["prom:rate(http_errors[5m])@1720000000"],
     "confidence": 0.8,
-    "budget_spent": {"tool_calls": 3, "tokens": 8200},
+    "budget_spent": {"schema_version": 1, "tool_calls": 3, "tokens": 8200},
 }
 
 
 def make_conclusion(**overrides: object) -> Conclusion:
     payload: dict[str, object] = {
+        "schema_version": 1,
         "run_id": RUN_ID,
         "fingerprint": FINGERPRINT,
         "status": "root_caused",
@@ -72,10 +74,11 @@ def test_a_budget_cannot_be_negative() -> None:
     with pytest.raises(ValidationError):
         Assignment.model_validate(
             {
+                "schema_version": 1,
                 "agent": "log-analyst",
                 "question": "which service started erroring first?",
                 "context_slice": "checkout, 16:50-17:10",
-                "budget": {"tool_calls": -1, "tokens": 50_000},
+                "budget": {"schema_version": 1, "tool_calls": -1, "tokens": 50_000},
             }
         )
 
@@ -83,10 +86,11 @@ def test_a_budget_cannot_be_negative() -> None:
 def test_an_assignment_round_trips_json() -> None:
     assignment = Assignment.model_validate(
         {
+            "schema_version": 1,
             "agent": "log-analyst",
             "question": "which service started erroring first?",
             "context_slice": "checkout, 16:50-17:10",
-            "budget": {"tool_calls": 8, "tokens": 50_000},
+            "budget": {"schema_version": 1, "tool_calls": 8, "tokens": 50_000},
         }
     )
     assert Assignment.model_validate_json(assignment.model_dump_json()) == assignment

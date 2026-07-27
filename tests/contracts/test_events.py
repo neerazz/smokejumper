@@ -15,6 +15,7 @@ FINGERPRINT = event_fingerprint("grafana", "alert-42", [("service", "checkout"),
 
 def make_event(**overrides: object) -> AgentEvent:
     payload: dict[str, object] = {
+        "schema_version": 1,
         "id": "0192f0a1-0000-7000-8000-000000000001",
         "source": "grafana",
         "kind": "alert",
@@ -23,7 +24,10 @@ def make_event(**overrides: object) -> AgentEvent:
         "severity": "high",
         "title": "Checkout error rate above 5%",
         "body": "sum(rate(http_errors[5m])) / sum(rate(http_requests[5m])) > 0.05",
-        "entities": [{"type": "service", "id": "checkout"}, {"type": "host", "id": "web-1"}],
+        "entities": [
+            {"schema_version": 1, "type": "service", "id": "checkout"},
+            {"schema_version": 1, "type": "host", "id": "web-1"},
+        ],
         "occurred_at": "2026-07-26T17:00:00Z",
         "received_at": "2026-07-26T17:00:05Z",
         "raw": {"state": "alerting", "values": {"B": 0.07}, "labels": None},
@@ -44,7 +48,10 @@ def test_renaming_the_title_does_not_change_the_fingerprint() -> None:
 
 def test_entity_order_in_the_event_does_not_change_the_accepted_fingerprint() -> None:
     reordered = make_event(
-        entities=[{"type": "host", "id": "web-1"}, {"type": "service", "id": "checkout"}]
+        entities=[
+            {"schema_version": 1, "type": "host", "id": "web-1"},
+            {"schema_version": 1, "type": "service", "id": "checkout"},
+        ]
     )
     assert reordered.fingerprint == FINGERPRINT
 
@@ -93,4 +100,4 @@ def test_unknown_fields_are_rejected() -> None:
 
 def test_missing_identity_fields_are_rejected() -> None:
     with pytest.raises(ValidationError):
-        AgentEvent.model_validate({"source": "grafana", "kind": "alert"})
+        AgentEvent.model_validate({"schema_version": 1, "source": "grafana", "kind": "alert"})

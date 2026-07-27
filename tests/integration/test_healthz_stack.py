@@ -36,8 +36,11 @@ def test_healthz_reports_every_component_an_incident_needs() -> None:
     body = response.json()
     assert body["status"] == "ok"
     assert body["postgres"] == "ok"
+    assert body["schema"] == "ok"
     assert body["redis"] == "ok"
     assert body["worker"] == "ok", "a dead worker must never report healthy"
+    assert body["outbox"] == "ok", "a dead dispatcher must never report healthy"
+    assert body["outbox_pending"] == 0
     assert body["recorder_write_failures"] == 0
     # Unprocessed work, not retained stream length. An idle system reports zero;
     # XLEN would report every alert ever received and page on a healthy stack.
@@ -55,7 +58,9 @@ async def test_healthz_fails_closed_when_dependencies_are_unreachable() -> None:
     body = response.json()
     assert body["status"] == "unhealthy"
     assert body["postgres"].startswith("down: ")
+    assert body["schema"].startswith("down: ")
     assert body["redis"].startswith("down: ")
     # The worker survives unreachable dependencies by design: it retries rather
     # than exiting, so an outage that recovers does not need a container restart.
     assert body["worker"] in {"ok", "starting"}
+    assert body["outbox"] in {"ok", "starting"}

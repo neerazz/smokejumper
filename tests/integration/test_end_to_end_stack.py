@@ -88,6 +88,21 @@ def _await_run(fingerprint: str) -> dict[str, Any]:
     pytest.fail(f"no concluded run for {fingerprint} within {SETTLE_TIMEOUT}s; last={last}")
 
 
+def _await_queue_idle() -> None:
+    """Wait until the consumer group has neither lag nor pending work."""
+    deadline = time.monotonic() + SETTLE_TIMEOUT
+    latest: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        groups = json.loads(
+            _compose("redis", "redis-cli", "--json", "XINFO", "GROUPS", "agentevents")
+        )
+        latest = next(group for group in groups if group["name"] == "intelligence")
+        if int(latest.get("lag", 0)) == 0 and int(latest.get("pending", 0)) == 0:
+            return
+        time.sleep(0.25)
+    pytest.fail(f"queue did not become idle; last group state={latest}")
+
+
 def test_an_alert_becomes_a_conclusion_and_a_ticket(delivery: dict[str, Any], secret: str) -> None:
     """The whole product in one test."""
     accepted = _post(delivery, secret).json()
@@ -130,7 +145,55 @@ def test_the_audit_trail_records_the_whole_run(delivery: dict[str, Any], secret:
 
     assert [r["kind"] for r in records] == ["event", "transition", "action"]
     assert [r["seq"] for r in records] == [1, 2, 3], "seq is monotonic per run"
+    recorded_event = records[0]["payload"]["event"]
+    assert recorded_event["schema_version"] == 1
+    assert recorded_event["fingerprint"] == accepted["fingerprint"]
+    assert recorded_event["raw"]["alert_id"] == delivery["alert_id"]
     assert records[-1]["payload"]["ticket"] == run["ticket"]
+
+
+def test_queue_redelivery_reuses_the_run_and_suppresses_the_action(
+    delivery: dict[str, Any], secret: str
+) -> None:
+    """A crash after the action commit but before XACK must not update twice."""
+    accepted = _post(delivery, secret).json()
+    first_run = _await_run(accepted["fingerprint"])
+    event_id = accepted["event_id"]
+    payload = _scalar(f"SELECT payload::text FROM events WHERE id = '{event_id}'")
+
+    # Recreate the durable state left by a process death after Actions committed
+    # but before the run/audit close. The ticket_actions receipt remains.
+    _scalar(
+        "UPDATE runs SET status = 'running', conclusion = NULL, finished_at = NULL, "
+        f"audit_end_offset = NULL WHERE run_id = '{event_id}' RETURNING status"
+    )
+
+    _compose("redis", "redis-cli", "XADD", "agentevents", "*", "event", payload)
+    _await_queue_idle()
+
+    assert int(_scalar(f"SELECT count(*) FROM runs WHERE run_id = '{event_id}'")) == 1
+    assert int(_scalar(f"SELECT count(*) FROM ticket_actions WHERE run_id = '{event_id}'")) == 1
+    assert _scalar(f"SELECT status FROM runs WHERE run_id = '{event_id}'") == "concluded"
+    assert (
+        int(
+            _scalar(
+                "SELECT update_count FROM tickets "
+                f"WHERE fingerprint = '{accepted['fingerprint']}' AND closed_at IS NULL"
+            )
+        )
+        == 0
+    )
+    replayed_run = _await_run(accepted["fingerprint"])
+    assert replayed_run["audit"]["start_offset"] > first_run["audit"]["start_offset"]
+    lines = _compose("app", "sh", "-c", f"cat /app/logs/{replayed_run['audit']['file']}")
+    actions = [
+        json.loads(line)
+        for line in lines.splitlines()
+        if line.strip()
+        and json.loads(line)["run_id"] == event_id
+        and json.loads(line)["kind"] == "action"
+    ]
+    assert actions[-1]["payload"]["replayed"] is True
 
 
 def test_one_ticket_per_incident_under_concurrency(delivery: dict[str, Any], secret: str) -> None:

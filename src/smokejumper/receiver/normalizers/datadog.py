@@ -116,7 +116,7 @@ def tag_entities(tags: list[str]) -> list[Entity]:
         key, value = key.strip().lower(), value.strip()
         if key in IDENTITY_TAG_KEYS and value:
             seen.add((key, value))
-    return [Entity(type=key, id=value) for key, value in sorted(seen)]
+    return [Entity(schema_version=1, type=key, id=value) for key, value in sorted(seen)]
 
 
 def severity_of(payload: dict[str, Any]) -> Severity:
@@ -168,6 +168,7 @@ def normalize(payload: dict[str, Any], *, received_at: datetime) -> AgentEvent:
     title = _text(payload, "title") or f"Datadog monitor {alert_id}"
 
     return AgentEvent(
+        schema_version=1,
         id=uuid4(),
         source=EventSource.DATADOG,
         kind=EventKind.ALERT,

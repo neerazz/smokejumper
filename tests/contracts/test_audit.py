@@ -11,12 +11,13 @@ from smokejumper.contracts import AuditEvent, AuditKind, LlmCallPayload
 
 RUN_ID = "0192f0a1-0000-7000-8000-000000000001"
 LLM_PAYLOAD: dict[str, object] = {
+    "schema_version": 1,
     "prompt_ref": "agents/metrics-analyst@v3",
     "prompt_sha256": "a" * 64,
     "model": "smokejumper-worker",
     "request_sha256": "b" * 64,
     "response": {"content": "checkout 5xx correlates with the 17:00 deploy"},
-    "usage": {"input_tokens": 1200, "output_tokens": 300},
+    "usage": {"schema_version": 1, "input_tokens": 1200, "output_tokens": 300},
     "cost_usd": "0.0123",
     "latency_ms": 842,
 }
@@ -24,6 +25,7 @@ LLM_PAYLOAD: dict[str, object] = {
 
 def make_audit_event(**overrides: object) -> AuditEvent:
     payload: dict[str, object] = {
+        "schema_version": 1,
         "run_id": RUN_ID,
         "seq": 7,
         "ts": "2026-07-26T17:00:07Z",

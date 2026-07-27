@@ -13,6 +13,8 @@ from __future__ import annotations
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+SCHEMA_HEAD = "0004_event_queue_outbox"
+
 
 def create_engine(database_url: str) -> AsyncEngine:
     """Build the async engine for `database_url`.
@@ -30,3 +32,11 @@ async def check_connection(engine: AsyncEngine) -> None:
     """Round-trip one query, raising whatever the driver raises on failure."""
     async with engine.connect() as connection:
         await connection.execute(text("SELECT 1"))
+
+
+async def check_schema(engine: AsyncEngine) -> None:
+    """Fail when the reachable database is not at this checkout's Alembic head."""
+    async with engine.connect() as connection:
+        current = await connection.scalar(text("SELECT version_num FROM alembic_version"))
+    if current != SCHEMA_HEAD:
+        raise RuntimeError(f"schema revision {current!r}; expected {SCHEMA_HEAD!r}")

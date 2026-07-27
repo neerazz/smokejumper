@@ -30,6 +30,9 @@ from smokejumper.receiver.normalizers.sources import (
     normalize_generic,
     normalize_grafana,
     normalize_pagerduty,
+    resolved_alertmanager,
+    resolved_grafana,
+    resolved_pagerduty,
 )
 from smokejumper.receiver.verification import verify_source_ip
 
@@ -107,7 +110,8 @@ def test_pagerduty_falls_back_through_the_key_fields() -> None:
 
     keyless = pagerduty_payload()
     del keyless["event"]["data"]["incident_key"]
-    assert normalize_pagerduty(keyless, received_at=RECEIVED_AT)[0].source_event_key == "PGR0VU2"
+    with pytest.raises(UnparseablePayload, match=r"incident\.id is reminted"):
+        normalize_pagerduty(keyless, received_at=RECEIVED_AT)
 
 
 @pytest.mark.parametrize(
@@ -152,11 +156,23 @@ def test_pagerduty_without_an_incident_is_unparseable() -> None:
 
 def test_pagerduty_without_any_key_is_unparseable() -> None:
     payload = pagerduty_payload()
-    for field in ("id", "incident_key"):
-        del payload["event"]["data"][field]
+    del payload["event"]["data"]["incident_key"]
 
     with pytest.raises(UnparseablePayload, match="dedup_key"):
         normalize_pagerduty(payload, received_at=RECEIVED_AT)
+
+
+def test_pagerduty_resolution_is_not_an_alert_and_preserves_incident_identity() -> None:
+    triggered = pagerduty_payload()
+    resolved = pagerduty_payload()
+    resolved["event"]["event_type"] = "incident.resolved"
+
+    (firing,) = normalize_pagerduty(triggered, received_at=RECEIVED_AT)
+
+    assert normalize_pagerduty(resolved, received_at=RECEIVED_AT) == []
+    assert (
+        resolved_pagerduty(resolved, received_at=RECEIVED_AT)[0].fingerprint == firing.fingerprint
+    )
 
 
 # --- Grafana / Alertmanager ------------------------------------------------
@@ -283,6 +299,21 @@ def test_resolved_alerts_are_dropped() -> None:
 
 def test_an_all_resolved_batch_yields_nothing() -> None:
     assert normalize_grafana(batch(alert(status="resolved")), received_at=RECEIVED_AT) == []
+
+
+def test_resolved_label_alerts_preserve_the_firing_identity() -> None:
+    firing = alert(fingerprint="same-incident")
+    resolved = alert(fingerprint="same-incident", status="resolved")
+
+    grafana_firing = normalize_grafana(batch(firing), received_at=RECEIVED_AT)[0]
+    alertmanager_firing = normalize_alertmanager(batch(firing), received_at=RECEIVED_AT)[0]
+
+    assert resolved_grafana(batch(resolved), received_at=RECEIVED_AT)[0].fingerprint == (
+        grafana_firing.fingerprint
+    )
+    assert resolved_alertmanager(batch(resolved), received_at=RECEIVED_AT)[0].fingerprint == (
+        alertmanager_firing.fingerprint
+    )
 
 
 def test_an_empty_batch_is_unparseable() -> None:

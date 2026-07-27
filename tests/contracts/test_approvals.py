@@ -11,6 +11,7 @@ from smokejumper.contracts import ApprovalDecision, ApprovalRequest
 
 RUN_ID = "0192f0a1-0000-7000-8000-000000000001"
 PRIVILEGED_CALL: dict[str, object] = {
+    "schema_version": 1,
     "run_id": RUN_ID,
     "agent": "metrics-analyst",
     "tool": "demo_destructive_noop",
@@ -21,6 +22,7 @@ PRIVILEGED_CALL: dict[str, object] = {
 
 def make_request(**overrides: object) -> ApprovalRequest:
     payload: dict[str, object] = {
+        "schema_version": 1,
         "id": "0192f0a1-0000-7000-8000-0000000000a1",
         "run_id": RUN_ID,
         "channel_id": "C0123456789",
@@ -65,6 +67,7 @@ def test_naive_timestamps_are_rejected() -> None:
 def test_decision_round_trips_json() -> None:
     decision = ApprovalDecision.model_validate(
         {
+            "schema_version": 1,
             "approved": True,
             "decided_by": "U0123456789",
             "decided_at": "2026-07-26T17:04:00Z",
@@ -78,6 +81,7 @@ def test_a_decision_without_a_token_is_rejected() -> None:
     with pytest.raises(ValidationError):
         ApprovalDecision.model_validate(
             {
+                "schema_version": 1,
                 "approved": True,
                 "decided_by": "U0123456789",
                 "decided_at": "2026-07-26T17:04:00Z",
