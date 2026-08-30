@@ -1,0 +1,148 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1942" height="886" viewBox="0 0 1942 886" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="t d">
+  <title id="t">J2 — Operator setup: from clone to first investigated alert in about 30 minutes</title>
+  <desc id="d">The whole point of adopting official SDKs and existing MCP servers: five credentials, no public URL, no tunnel. Counted against the vendor docs read on 2026-08-29.</desc>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3d4852"/></marker></defs>
+  <rect width="1942" height="886" fill="#ffffff"/>
+  <text x="60" y="62" font-size="26" fill="#10334a" font-weight="700">J2 — Operator setup: from clone to first investigated alert in about 30 minutes</text>
+  <text x="60" y="88" font-size="12.5" fill="#5b6b7a">The whole point of adopting official SDKs and existing MCP servers: five credentials, no public URL, no tunnel. Counted against the vendor docs read on 2026-08-29.</text>
+  <rect x="60" y="104" width="22" height="14" rx="3" fill="#fff4e6" stroke="#d9480f"/>
+  <text x="88" y="116" font-size="11" fill="#5b6b7a">person</text>
+  <rect x="151.8" y="104" width="22" height="14" rx="3" fill="#f1f3f5" stroke="#5b6b7a"/>
+  <text x="179.8" y="116" font-size="11" fill="#5b6b7a">chat surface</text>
+  <rect x="281.4" y="104" width="22" height="14" rx="3" fill="#e3f3f6" stroke="#0b7285"/>
+  <text x="309.4" y="116" font-size="11" fill="#5b6b7a">Smokejumper</text>
+  <rect x="404.7" y="104" width="22" height="14" rx="3" fill="#efeafb" stroke="#6741b8"/>
+  <text x="432.7" y="116" font-size="11" fill="#5b6b7a">audit / evidence</text>
+  <rect x="559.5" y="104" width="22" height="14" rx="3" fill="#fbf0da" stroke="#9a6700"/>
+  <text x="587.5" y="116" font-size="11" fill="#5b6b7a">approval-gated</text>
+  <rect x="701.7" y="104" width="22" height="14" rx="3" fill="#eef2fb" stroke="#3f5b9a"/>
+  <text x="729.7" y="116" font-size="11" fill="#5b6b7a">ticket / record</text>
+  <rect x="850.2" y="104" width="22" height="14" rx="3" fill="#fff0f0" stroke="#c92a2a"/>
+  <text x="878.2" y="116" font-size="11" fill="#5b6b7a">system signal</text>
+  <rect x="230" y="126" width="236" height="24" fill="#f8f9fa" stroke="#d5dde5"/>
+  <text x="348.0" y="142" font-size="11.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">0–3 min</text>
+  <rect x="466" y="126" width="236" height="24" fill="#f8f9fa" stroke="#d5dde5"/>
+  <text x="584.0" y="142" font-size="11.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">3–6 min</text>
+  <rect x="702" y="126" width="236" height="24" fill="#f8f9fa" stroke="#d5dde5"/>
+  <text x="820.0" y="142" font-size="11.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">6–12 min</text>
+  <rect x="938" y="126" width="236" height="24" fill="#f8f9fa" stroke="#d5dde5"/>
+  <text x="1056.0" y="142" font-size="11.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">12–18 min</text>
+  <rect x="1174" y="126" width="236" height="24" fill="#f8f9fa" stroke="#d5dde5"/>
+  <text x="1292.0" y="142" font-size="11.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">18–24 min</text>
+  <rect x="1410" y="126" width="236" height="24" fill="#f8f9fa" stroke="#d5dde5"/>
+  <text x="1528.0" y="142" font-size="11.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">24–30 min</text>
+  <rect x="1646" y="126" width="236" height="24" fill="#f8f9fa" stroke="#d5dde5"/>
+  <text x="1764.0" y="142" font-size="11.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">verify</text>
+  <rect x="60" y="150" width="1822" height="92" fill="#ffffff" stroke="#d5dde5"/>
+  <rect x="60" y="150" width="170" height="92" fill="#f1f3f5" stroke="#d5dde5"/>
+  <text x="145.0" y="201.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">Operator</text>
+  <rect x="60" y="242" width="1822" height="106" fill="#fbfbfc" stroke="#d5dde5"/>
+  <rect x="60" y="242" width="170" height="106" fill="#f1f3f5" stroke="#d5dde5"/>
+  <text x="145.0" y="293.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">Terminal /</text>
+  <text x="145.0" y="308.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">compose</text>
+  <rect x="60" y="348" width="1822" height="120" fill="#ffffff" stroke="#d5dde5"/>
+  <rect x="60" y="348" width="170" height="120" fill="#f1f3f5" stroke="#d5dde5"/>
+  <text x="145.0" y="406.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">Slack app</text>
+  <text x="145.0" y="421.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">(manifest)</text>
+  <rect x="60" y="468" width="1822" height="120" fill="#fbfbfc" stroke="#d5dde5"/>
+  <rect x="60" y="468" width="170" height="120" fill="#f1f3f5" stroke="#d5dde5"/>
+  <text x="145.0" y="526.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">Alert source</text>
+  <text x="145.0" y="541.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">(Alertmanager / Datadog)</text>
+  <rect x="60" y="588" width="1822" height="120" fill="#ffffff" stroke="#d5dde5"/>
+  <rect x="60" y="588" width="170" height="120" fill="#f1f3f5" stroke="#d5dde5"/>
+  <text x="145.0" y="646.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">MCP servers</text>
+  <text x="145.0" y="661.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">(witnesses)</text>
+  <line x1="230" y1="150" x2="230" y2="708" stroke="#e9ecef"/>
+  <line x1="466" y1="150" x2="466" y2="708" stroke="#e9ecef"/>
+  <line x1="702" y1="150" x2="702" y2="708" stroke="#e9ecef"/>
+  <line x1="938" y1="150" x2="938" y2="708" stroke="#e9ecef"/>
+  <line x1="1174" y1="150" x2="1174" y2="708" stroke="#e9ecef"/>
+  <line x1="1410" y1="150" x2="1410" y2="708" stroke="#e9ecef"/>
+  <line x1="1646" y1="150" x2="1646" y2="708" stroke="#e9ecef"/>
+  <line x1="1882" y1="150" x2="1882" y2="708" stroke="#e9ecef"/>
+  <rect x="237.0" y="162.0" width="222" height="68" rx="7" fill="#fff4e6" stroke="#d9480f"/>
+  <text x="247.0" y="180.0" font-size="11.5" fill="#6b2a00" font-weight="700">clone · cp .env.example .env</text>
+  <text x="247.0" y="195.0" font-size="10.5" fill="#6b2a00">fill nothing yet</text>
+  <text x="247.0" y="209.0" font-size="10.5" fill="#6b2a00">uv sync</text>
+  <rect x="237.0" y="261.0" width="222" height="68" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <text x="247.0" y="279.0" font-size="11.5" fill="#0b3a42" font-weight="700">docker compose up -d --build</text>
+  <text x="247.0" y="294.0" font-size="10.5" fill="#0b3a42">postgres+pgvector · redis · app</text>
+  <text x="247.0" y="308.0" font-size="10.5" fill="#0b3a42">alembic upgrade head at boot</text>
+  <rect x="473.0" y="254.0" width="222" height="82" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <text x="483.0" y="272.0" font-size="11.5" fill="#0b3a42" font-weight="700">curl /healthz → 200</text>
+  <rect x="652.0" y="319.0" width="37.0" height="13" rx="6" fill="#ffffff" stroke="#0b7285" stroke-width="0.8"/>
+  <text x="670.5" y="328.5" font-size="8.5" fill="#0b7285" font-weight="700" text-anchor="middle">proof</text>
+  <text x="483.0" y="287.0" font-size="10.5" fill="#0b3a42">postgres ok · schema head · redis ok</text>
+  <text x="483.0" y="301.0" font-size="10.5" fill="#0b3a42">worker ok · outbox ok</text>
+  <rect x="473.0" y="162.0" width="222" height="68" rx="7" fill="#fff4e6" stroke="#d9480f"/>
+  <text x="483.0" y="180.0" font-size="11.5" fill="#6b2a00" font-weight="700">smokejumper check-config</text>
+  <text x="483.0" y="195.0" font-size="10.5" fill="#6b2a00">local env · stubs allowed</text>
+  <text x="483.0" y="209.0" font-size="10.5" fill="#6b2a00">prod refuses stubs — by design</text>
+  <rect x="709.0" y="360.0" width="222" height="96" rx="7" fill="#f1f3f5" stroke="#5b6b7a"/>
+  <text x="719.0" y="378.0" font-size="11.5" fill="#3d4852" font-weight="700">Slack app from manifest.json</text>
+  <rect x="877.2" y="439.0" width="47.800000000000004" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.8"/>
+  <text x="901.1" y="448.5" font-size="8.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">8 steps</text>
+  <text x="719.0" y="393.0" font-size="10.5" fill="#3d4852">scopes: app_mentions:read chat:write</text>
+  <text x="719.0" y="407.0" font-size="10.5" fill="#3d4852">channels:history reactions:write</text>
+  <text x="719.0" y="421.0" font-size="10.5" fill="#3d4852">Socket Mode + Interactivity ON</text>
+  <rect x="945.0" y="360.0" width="222" height="96" rx="7" fill="#f1f3f5" stroke="#5b6b7a"/>
+  <text x="955.0" y="378.0" font-size="11.5" fill="#3d4852" font-weight="700">two tokens → .env</text>
+  <rect x="1113.2" y="439.0" width="47.800000000000004" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.8"/>
+  <text x="1137.1" y="448.5" font-size="8.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">2 creds</text>
+  <text x="955.0" y="393.0" font-size="10.5" fill="#3d4852">xapp-… app token (connections:write)</text>
+  <text x="955.0" y="407.0" font-size="10.5" fill="#3d4852">xoxb-… bot token after install</text>
+  <text x="955.0" y="421.0" font-size="10.5" fill="#3d4852">no public URL · no ngrok</text>
+  <rect x="945.0" y="162.0" width="222" height="68" rx="7" fill="#fff4e6" stroke="#d9480f"/>
+  <text x="955.0" y="180.0" font-size="11.5" fill="#6b2a00" font-weight="700">invite bot to #incidents</text>
+  <text x="955.0" y="195.0" font-size="10.5" fill="#6b2a00">/invite @smokejumper</text>
+  <text x="955.0" y="209.0" font-size="10.5" fill="#6b2a00">SLACK_CHANNEL_ID → .env</text>
+  <rect x="1181.0" y="480.0" width="222" height="96" rx="7" fill="#fff0f0" stroke="#c92a2a"/>
+  <text x="1191.0" y="498.0" font-size="11.5" fill="#5c0d0d" font-weight="700">point the alert source at us</text>
+  <rect x="1343.8" y="559.0" width="53.2" height="13" rx="6" fill="#ffffff" stroke="#c92a2a" stroke-width="0.8"/>
+  <text x="1370.4" y="568.5" font-size="8.5" fill="#c92a2a" font-weight="700" text-anchor="middle">1 secret</text>
+  <text x="1191.0" y="513.0" font-size="10.5" fill="#5c0d0d">Alertmanager receiver → /webhooks/alertmanager</text>
+  <text x="1191.0" y="527.0" font-size="10.5" fill="#5c0d0d">  peer CIDR allowlist (no credential)</text>
+  <text x="1191.0" y="541.0" font-size="10.5" fill="#5c0d0d">Datadog: webhook + X-Smokejumper-Token</text>
+  <rect x="1181.0" y="600.0" width="222" height="96" rx="7" fill="#f1f3f5" stroke="#5b6b7a"/>
+  <text x="1191.0" y="618.0" font-size="11.5" fill="#3d4852" font-weight="700">witness credentials</text>
+  <rect x="1338.4" y="679.0" width="58.6" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.8"/>
+  <text x="1367.7" y="688.5" font-size="8.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">1–2 creds</text>
+  <text x="1191.0" y="633.0" font-size="10.5" fill="#3d4852">GRAFANA_SERVICE_ACCOUNT_TOKEN</text>
+  <text x="1191.0" y="647.0" font-size="10.5" fill="#3d4852">(optional) Datadog api/app keys</text>
+  <text x="1191.0" y="661.0" font-size="10.5" fill="#3d4852">k8s-mcp --read-only via kubeconfig</text>
+  <rect x="1417.0" y="254.0" width="222" height="82" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <text x="1427.0" y="272.0" font-size="11.5" fill="#0b3a42" font-weight="700">compose up --profile witness</text>
+  <text x="1427.0" y="287.0" font-size="10.5" fill="#0b3a42">mcp-grafana sidecar · k8s-mcp sidecar</text>
+  <text x="1427.0" y="301.0" font-size="10.5" fill="#0b3a42">manifest.yaml: every tool tiered</text>
+  <text x="1427.0" y="315.0" font-size="10.5" fill="#0b3a42">boot fails on untiered tool</text>
+  <rect x="1653.0" y="254.0" width="222" height="82" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <text x="1663.0" y="272.0" font-size="11.5" fill="#0b3a42" font-weight="700">fixtures replay --source alertmanager</text>
+  <rect x="1832.0" y="319.0" width="37.0" height="13" rx="6" fill="#ffffff" stroke="#0b7285" stroke-width="0.8"/>
+  <text x="1850.5" y="328.5" font-size="8.5" fill="#0b7285" font-weight="700" text-anchor="middle">proof</text>
+  <text x="1663.0" y="287.0" font-size="10.5" fill="#0b3a42">202 · one run · one fixture ticket</text>
+  <text x="1663.0" y="301.0" font-size="10.5" fill="#0b3a42">GET /runs/{fp} → B6 + audit range</text>
+  <rect x="1653.0" y="374.0" width="222" height="68" rx="7" fill="#f1f3f5" stroke="#5b6b7a"/>
+  <text x="1663.0" y="392.0" font-size="11.5" fill="#3d4852" font-weight="700">first thread appears</text>
+  <text x="1663.0" y="407.0" font-size="10.5" fill="#3d4852">root card + triage lines</text>
+  <text x="1663.0" y="421.0" font-size="10.5" fill="#3d4852">reply with citations</text>
+  <rect x="1653.0" y="162.0" width="222" height="68" rx="7" fill="#fff4e6" stroke="#d9480f"/>
+  <text x="1663.0" y="180.0" font-size="11.5" fill="#6b2a00" font-weight="700">operator reads the thread</text>
+  <text x="1663.0" y="195.0" font-size="10.5" fill="#6b2a00">@smokejumper what did you rule out?</text>
+  <text x="1663.0" y="209.0" font-size="10.5" fill="#6b2a00">→ hypothesis board reply</text>
+  <line x1="348.0" y1="230.0" x2="348.0" y2="261.0" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M459.0 295.0 L466.0 295.0 L466.0 295.0 L473.0 295.0" fill="none" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <line x1="584.0" y1="254.0" x2="584.0" y2="230.0" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M695.0 196.0 L702.0 196.0 L702.0 408.0 L709.0 408.0" fill="none" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M931.0 408.0 L938.0 408.0 L938.0 408.0 L945.0 408.0" fill="none" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <line x1="1056.0" y1="360.0" x2="1056.0" y2="230.0" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M1167.0 196.0 L1174.0 196.0 L1174.0 528.0 L1181.0 528.0" fill="none" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <line x1="1292.0" y1="576.0" x2="1292.0" y2="600.0" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M1403.0 648.0 L1410.0 648.0 L1410.0 295.0 L1417.0 295.0" fill="none" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M1639.0 295.0 L1646.0 295.0 L1646.0 295.0 L1653.0 295.0" fill="none" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <line x1="1764.0" y1="336.0" x2="1764.0" y2="374.0" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <line x1="1764.0" y1="374.0" x2="1764.0" y2="230.0" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="60" y="718" width="1822" height="78" rx="8" fill="#fbfaff" stroke="#6741b8" stroke-width="1"/>
+  <text x="74" y="736" font-size="11" fill="#2f1e5c">Credential count for the minimum path (Slack + Alertmanager + Grafana): 4 — xapp, xoxb, Grafana service-account token, and the Alertmanager peer CIDR (not a secret). Datadog adds one webhook token; Linear MCP adds one API key or OAuth.</text>
+  <text x="74" y="752" font-size="11" fill="#2f1e5c">Three proofs on the way, each a command with a checkable output: /healthz 200 · check-config exit 0 · fixtures replay → GET /runs/{fp}. Nothing here is ‘it should work’.</text>
+  <text x="74" y="768" font-size="11" fill="#2f1e5c">Facts behind the counts: Slack Socket Mode quickstart (docs.slack.dev), mcp-grafana README, kubernetes-mcp-server README — see docs/plans/2026-08-29-reference-architecture-analysis.md §5.</text>
+</svg>

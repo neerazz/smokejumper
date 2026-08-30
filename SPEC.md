@@ -2,7 +2,7 @@
 
 > Level-2 design: everything an implementer (human or agent) needs to build v1 without
 > re-asking architectural questions. The level-1 container view is the
-> [component diagram](architecture/smokejumper-components.svg); this document refines it into
+> [component diagram](architecture/system/c2-components.svg); this document refines it into
 > contracts, component behavior, flows, data, and verifiable milestones.
 >
 > **Status: M0 and the HTTP alert→deterministic conclusion→fixture-ticket vertical slice are

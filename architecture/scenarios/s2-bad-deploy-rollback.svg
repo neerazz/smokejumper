@@ -1,0 +1,178 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2648" height="1062" viewBox="0 0 2648 1062" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="t d">
+  <title id="t">S2 — Bad deploy or config change → error spike → rollback</title>
+  <desc id="d">The most common cause in public postmortems and the fastest to fix when a discrete change exists. Timelines: Cloudflare 2019 (detect→mitigate 22 min, mitigate→recover 2 min), GitHub Aug-2024 (36 min), incident.io Jul-2024 (rollback re-deployed by pipeline).</desc>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3d4852"/></marker></defs>
+  <rect width="2648" height="1062" fill="#ffffff"/>
+  <text x="60" y="62" font-size="26" fill="#10334a" font-weight="700">S2 — Bad deploy or config change → error spike → rollback</text>
+  <text x="60" y="88" font-size="12.5" fill="#5b6b7a">The most common cause in public postmortems and the fastest to fix when a discrete change exists. Timelines: Cloudflare 2019 (detect→mitigate 22 min, mitigate→recover 2 min), GitHub Aug-2024 (36 min), incident.io Jul-2024 (rollback re-deployed by pipeline).</text>
+  <rect x="60" y="104" width="22" height="14" rx="3" fill="#fff0f0" stroke="#c92a2a"/>
+  <text x="88" y="116" font-size="11" fill="#5b6b7a">system signal</text>
+  <rect x="195.89999999999998" y="104" width="22" height="14" rx="3" fill="#f1f3f5" stroke="#5b6b7a"/>
+  <text x="223.89999999999998" y="116" font-size="11" fill="#5b6b7a">alert / chat</text>
+  <rect x="325.5" y="104" width="22" height="14" rx="3" fill="#e3f3f6" stroke="#0b7285"/>
+  <text x="353.5" y="116" font-size="11" fill="#5b6b7a">hypothesis held</text>
+  <rect x="474.0" y="104" width="22" height="14" rx="3" fill="#e6f4ea" stroke="#2b8a3e"/>
+  <text x="502.0" y="116" font-size="11" fill="#5b6b7a">validated</text>
+  <rect x="584.7" y="104" width="22" height="14" rx="3" fill="#efeafb" stroke="#6741b8"/>
+  <text x="612.7" y="116" font-size="11" fill="#5b6b7a">evidence snapshot</text>
+  <rect x="745.8000000000001" y="104" width="22" height="14" rx="3" fill="#fbf0da" stroke="#9a6700"/>
+  <text x="773.8000000000001" y="116" font-size="11" fill="#5b6b7a">action (approval)</text>
+  <rect x="906.9000000000001" y="104" width="22" height="14" rx="3" fill="#fff4e6" stroke="#d9480f"/>
+  <text x="934.9000000000001" y="116" font-size="11" fill="#5b6b7a">person</text>
+  <rect x="230" y="126" width="262" height="24" fill="#f8f9fa" stroke="#d5dde5"/>
+  <text x="361.0" y="142" font-size="11.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">hours before</text>
+  <rect x="492" y="126" width="262" height="24" fill="#f8f9fa" stroke="#d5dde5"/>
+  <text x="623.0" y="142" font-size="11.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">T0 · trigger</text>
+  <rect x="754" y="126" width="262" height="24" fill="#f8f9fa" stroke="#d5dde5"/>
+  <text x="885.0" y="142" font-size="11.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">T+min · symptom</text>
+  <rect x="1016" y="126" width="262" height="24" fill="#f8f9fa" stroke="#d5dde5"/>
+  <text x="1147.0" y="142" font-size="11.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">detect</text>
+  <rect x="1278" y="126" width="262" height="24" fill="#f8f9fa" stroke="#d5dde5"/>
+  <text x="1409.0" y="142" font-size="11.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">triage</text>
+  <rect x="1540" y="126" width="262" height="24" fill="#f8f9fa" stroke="#d5dde5"/>
+  <text x="1671.0" y="142" font-size="11.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">investigate</text>
+  <rect x="1802" y="126" width="262" height="24" fill="#f8f9fa" stroke="#d5dde5"/>
+  <text x="1933.0" y="142" font-size="11.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">verify</text>
+  <rect x="2064" y="126" width="262" height="24" fill="#f8f9fa" stroke="#d5dde5"/>
+  <text x="2195.0" y="142" font-size="11.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">mitigate</text>
+  <rect x="2326" y="126" width="262" height="24" fill="#f8f9fa" stroke="#d5dde5"/>
+  <text x="2457.0" y="142" font-size="11.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">resolve</text>
+  <rect x="60" y="150" width="2528" height="120" fill="#ffffff" stroke="#d5dde5"/>
+  <rect x="60" y="150" width="170" height="120" fill="#f1f3f5" stroke="#d5dde5"/>
+  <text x="145.0" y="208.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">System signals</text>
+  <text x="145.0" y="223.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">(causal chain)</text>
+  <rect x="60" y="270" width="2528" height="120" fill="#fbfbfc" stroke="#d5dde5"/>
+  <rect x="60" y="270" width="170" height="120" fill="#f1f3f5" stroke="#d5dde5"/>
+  <text x="145.0" y="328.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">First human</text>
+  <text x="145.0" y="343.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">signal</text>
+  <rect x="60" y="390" width="2528" height="134" fill="#ffffff" stroke="#d5dde5"/>
+  <rect x="60" y="390" width="170" height="134" fill="#f1f3f5" stroke="#d5dde5"/>
+  <text x="145.0" y="455.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">Smokejumper</text>
+  <text x="145.0" y="470.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">hypotheses</text>
+  <rect x="60" y="524" width="2528" height="134" fill="#fbfbfc" stroke="#d5dde5"/>
+  <rect x="60" y="524" width="170" height="134" fill="#f1f3f5" stroke="#d5dde5"/>
+  <text x="145.0" y="589.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">Evidence that</text>
+  <text x="145.0" y="604.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">decides</text>
+  <rect x="60" y="658" width="2528" height="134" fill="#ffffff" stroke="#d5dde5"/>
+  <rect x="60" y="658" width="170" height="134" fill="#f1f3f5" stroke="#d5dde5"/>
+  <text x="145.0" y="723.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">Mitigation</text>
+  <text x="145.0" y="738.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">ladder</text>
+  <rect x="60" y="792" width="2528" height="92" fill="#fbfbfc" stroke="#d5dde5"/>
+  <rect x="60" y="792" width="170" height="92" fill="#f1f3f5" stroke="#d5dde5"/>
+  <text x="145.0" y="843.0" font-size="12.5" fill="#3d4852" font-weight="700" text-anchor="middle">Responder</text>
+  <line x1="230" y1="150" x2="230" y2="884" stroke="#e9ecef"/>
+  <line x1="492" y1="150" x2="492" y2="884" stroke="#e9ecef"/>
+  <line x1="754" y1="150" x2="754" y2="884" stroke="#e9ecef"/>
+  <line x1="1016" y1="150" x2="1016" y2="884" stroke="#e9ecef"/>
+  <line x1="1278" y1="150" x2="1278" y2="884" stroke="#e9ecef"/>
+  <line x1="1540" y1="150" x2="1540" y2="884" stroke="#e9ecef"/>
+  <line x1="1802" y1="150" x2="1802" y2="884" stroke="#e9ecef"/>
+  <line x1="2064" y1="150" x2="2064" y2="884" stroke="#e9ecef"/>
+  <line x1="2326" y1="150" x2="2326" y2="884" stroke="#e9ecef"/>
+  <line x1="2588" y1="150" x2="2588" y2="884" stroke="#e9ecef"/>
+  <rect x="237.0" y="176.0" width="248" height="68" rx="7" fill="#fff0f0" stroke="#c92a2a"/>
+  <text x="247.0" y="194.0" font-size="11.5" fill="#5c0d0d" font-weight="700">quiet baseline</text>
+  <text x="247.0" y="209.0" font-size="10.5" fill="#5c0d0d">RPS flat · 5xx 0.1%</text>
+  <text x="247.0" y="223.0" font-size="10.5" fill="#5c0d0d">no leading indicator — that is the point</text>
+  <rect x="499.0" y="162.0" width="248" height="96" rx="7" fill="#fff0f0" stroke="#c92a2a"/>
+  <text x="509.0" y="180.0" font-size="11.5" fill="#5c0d0d" font-weight="700">deploy / config marker</text>
+  <rect x="720.2" y="241.0" width="20.8" height="13" rx="6" fill="#ffffff" stroke="#c92a2a" stroke-width="0.8"/>
+  <text x="730.6" y="250.5" font-size="8.5" fill="#c92a2a" font-weight="700" text-anchor="middle">T0</text>
+  <text x="509.0" y="195.0" font-size="10.5" fill="#5c0d0d">CI deploy #412 · observed_generation ↑</text>
+  <text x="509.0" y="209.0" font-size="10.5" fill="#5c0d0d">or config edit with no code deploy</text>
+  <text x="509.0" y="223.0" font-size="10.5" fill="#5c0d0d">(Cloudflare 2025: permission → doubled file)</text>
+  <rect x="761.0" y="169.0" width="248" height="82" rx="7" fill="#fff0f0" stroke="#c92a2a"/>
+  <text x="771.0" y="187.0" font-size="11.5" fill="#5c0d0d" font-weight="700">step-change in errors</text>
+  <text x="771.0" y="202.0" font-size="10.5" fill="#5c0d0d">5xx within 1–15 min of marker</text>
+  <text x="771.0" y="216.0" font-size="10.5" fill="#5c0d0d">CPU pinned (2019) or panic/crash-loop (2025)</text>
+  <text x="771.0" y="230.0" font-size="10.5" fill="#5c0d0d">errors segregate by version label</text>
+  <rect x="1023.0" y="282.0" width="248" height="96" rx="7" fill="#f1f3f5" stroke="#5b6b7a"/>
+  <text x="1033.0" y="300.0" font-size="11.5" fill="#3d4852" font-weight="700">synthetic check pages</text>
+  <rect x="1244.2" y="361.0" width="20.8" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.8"/>
+  <text x="1254.6" y="370.5" font-size="8.5" fill="#5b6b7a" font-weight="700" text-anchor="middle">B1</text>
+  <text x="1033.0" y="315.0" font-size="10.5" fill="#3d4852">Cloudflare 2019: PagerDuty at T0+3m</text>
+  <text x="1033.0" y="329.0" font-size="10.5" fill="#3d4852">GitHub Aug-24: impact detected at +3m</text>
+  <text x="1033.0" y="343.0" font-size="10.5" fill="#3d4852">→ webhook → Smokejumper</text>
+  <rect x="1285.0" y="402.0" width="248" height="110" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <text x="1295.0" y="420.0" font-size="11.5" fill="#0b3a42" font-weight="700">hypotheses seeded</text>
+  <rect x="1490.0" y="495.0" width="37.0" height="13" rx="6" fill="#ffffff" stroke="#0b7285" stroke-width="0.8"/>
+  <text x="1508.5" y="504.5" font-size="8.5" fill="#0b7285" font-weight="700" text-anchor="middle">board</text>
+  <text x="1295.0" y="435.0" font-size="10.5" fill="#0b3a42">H1 the change at T0</text>
+  <text x="1295.0" y="449.0" font-size="10.5" fill="#0b3a42">H2 attack / traffic surge (red herring ×3)</text>
+  <text x="1295.0" y="463.0" font-size="10.5" fill="#0b3a42">H3 dependency outage (S4)</text>
+  <text x="1295.0" y="477.0" font-size="10.5" fill="#0b3a42">H4 artifact drift · H5 rollback didn&#x27;t take</text>
+  <rect x="1285.0" y="804.0" width="248" height="68" rx="7" fill="#fff4e6" stroke="#d9480f"/>
+  <text x="1295.0" y="822.0" font-size="11.5" fill="#6b2a00" font-weight="700">sees root card</text>
+  <text x="1295.0" y="837.0" font-size="10.5" fill="#6b2a00">impact 3.1% (n=42k) · SEV2</text>
+  <text x="1295.0" y="851.0" font-size="10.5" fill="#6b2a00">owner: team-payments</text>
+  <rect x="1547.0" y="536.0" width="248" height="110" rx="7" fill="#efeafb" stroke="#6741b8"/>
+  <text x="1557.0" y="554.0" font-size="11.5" fill="#2f1e5c" font-weight="700">witness reads (∥)</text>
+  <rect x="1752.0" y="629.0" width="37.0" height="13" rx="6" fill="#ffffff" stroke="#6741b8" stroke-width="0.8"/>
+  <text x="1770.5" y="638.5" font-size="8.5" fill="#6741b8" font-weight="700" text-anchor="middle">E1–E4</text>
+  <text x="1557.0" y="569.0" font-size="10.5" fill="#2f1e5c">change.list: deploy #412 at T0−4m (E1)</text>
+  <text x="1557.0" y="583.0" font-size="10.5" fill="#2f1e5c">5xx by version: new 9.8% · old 0.1% (E2)</text>
+  <text x="1557.0" y="597.0" font-size="10.5" fill="#2f1e5c">RPS flat, unique IPs flat (E3)</text>
+  <text x="1557.0" y="611.0" font-size="10.5" fill="#2f1e5c">dependency p99 unchanged (E4)</text>
+  <rect x="1547.0" y="416.0" width="248" height="82" rx="7" fill="#e6f4ea" stroke="#2b8a3e"/>
+  <text x="1557.0" y="434.0" font-size="11.5" fill="#1b4d24" font-weight="700">board updates</text>
+  <text x="1557.0" y="449.0" font-size="10.5" fill="#1b4d24">H1 ✓ (E1+E2 segregation)</text>
+  <text x="1557.0" y="463.0" font-size="10.5" fill="#1b4d24">H2 ✗ flat traffic (E3) — red herring named</text>
+  <text x="1557.0" y="477.0" font-size="10.5" fill="#1b4d24">H3 ✗ (E4) · H4 open until artifact hash read</text>
+  <rect x="1809.0" y="543.0" width="248" height="96" rx="7" fill="#efeafb" stroke="#6741b8"/>
+  <text x="1819.0" y="561.0" font-size="11.5" fill="#2f1e5c" font-weight="700">disproof attempted</text>
+  <rect x="2008.6" y="622.0" width="42.400000000000006" height="13" rx="6" fill="#ffffff" stroke="#6741b8" stroke-width="0.8"/>
+  <text x="2029.8" y="631.5" font-size="8.5" fill="#6741b8" font-weight="700" text-anchor="middle">verify</text>
+  <text x="1819.0" y="576.0" font-size="10.5" fill="#2f1e5c">errors on old version too? no (E2)</text>
+  <text x="1819.0" y="590.0" font-size="10.5" fill="#2f1e5c">onset before marker? no (E1 order)</text>
+  <text x="1819.0" y="604.0" font-size="10.5" fill="#2f1e5c">canary vs baseline confirms</text>
+  <rect x="1809.0" y="409.0" width="248" height="96" rx="7" fill="#e6f4ea" stroke="#2b8a3e"/>
+  <text x="1819.0" y="427.0" font-size="11.5" fill="#1b4d24" font-weight="700">B6 root_caused 0.91</text>
+  <rect x="2030.2" y="488.0" width="20.8" height="13" rx="6" fill="#ffffff" stroke="#2b8a3e" stroke-width="0.8"/>
+  <text x="2040.6" y="497.5" font-size="8.5" fill="#2b8a3e" font-weight="700" text-anchor="middle">B6</text>
+  <text x="1819.0" y="442.0" font-size="10.5" fill="#1b4d24">cause: deploy #412 · commit abc123</text>
+  <text x="1819.0" y="456.0" font-size="10.5" fill="#1b4d24">proposed: rollback (reversible)</text>
+  <text x="1819.0" y="470.0" font-size="10.5" fill="#1b4d24">Source chips [1][2][3]</text>
+  <rect x="2071.0" y="670.0" width="248" height="110" rx="7" fill="#fbf0da" stroke="#9a6700"/>
+  <text x="2081.0" y="688.0" font-size="11.5" fill="#5c3d00" font-weight="700">ladder</text>
+  <rect x="2259.8" y="763.0" width="53.2" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.8"/>
+  <text x="2286.4" y="772.5" font-size="8.5" fill="#9a6700" font-weight="700" text-anchor="middle">proposed</text>
+  <text x="2081.0" y="703.0" font-size="10.5" fill="#5c3d00">1 kill switch / flag off (CF 2019: 2 min)</text>
+  <text x="2081.0" y="717.0" font-size="10.5" fill="#5c3d00">2 roll back artifact/config to known-good</text>
+  <text x="2081.0" y="731.0" font-size="10.5" fill="#5c3d00">3 roll back code · VERIFY fleet version</text>
+  <text x="2081.0" y="745.0" font-size="10.5" fill="#5c3d00">4 restart to flush state · 5 forward-fix last</text>
+  <rect x="2071.0" y="804.0" width="248" height="68" rx="7" fill="#fff4e6" stroke="#d9480f"/>
+  <text x="2081.0" y="822.0" font-size="11.5" fill="#6b2a00" font-weight="700">approves rollback</text>
+  <rect x="2292.2" y="855.0" width="20.8" height="13" rx="6" fill="#ffffff" stroke="#d9480f" stroke-width="0.8"/>
+  <text x="2302.6" y="864.5" font-size="8.5" fill="#d9480f" font-weight="700" text-anchor="middle">B5</text>
+  <text x="2081.0" y="837.0" font-size="10.5" fill="#6b2a00">one button · B5 token consumed once</text>
+  <rect x="2071.0" y="557.0" width="248" height="68" rx="7" fill="#efeafb" stroke="#6741b8"/>
+  <text x="2081.0" y="575.0" font-size="11.5" fill="#2f1e5c" font-weight="700">mitigation-verifier</text>
+  <text x="2081.0" y="590.0" font-size="10.5" fill="#2f1e5c">fleet version = old? (incident.io: pipeline re-deployed it)</text>
+  <text x="2081.0" y="604.0" font-size="10.5" fill="#2f1e5c">5xx 3.1% → 0.2% in 90 s</text>
+  <rect x="2333.0" y="183.0" width="248" height="54" rx="7" fill="#fff0f0" stroke="#c92a2a"/>
+  <text x="2343.0" y="201.0" font-size="11.5" fill="#5c0d0d" font-weight="700">recovery confirmed</text>
+  <text x="2343.0" y="216.0" font-size="10.5" fill="#5c0d0d">error rate baseline · queues drained</text>
+  <rect x="2333.0" y="684.0" width="248" height="82" rx="7" fill="#fbf0da" stroke="#9a6700"/>
+  <text x="2343.0" y="702.0" font-size="11.5" fill="#5c3d00" font-weight="700">ticket + prevent</text>
+  <text x="2343.0" y="717.0" font-size="10.5" fill="#5c3d00">ticket: mitigated → resolved</text>
+  <text x="2343.0" y="731.0" font-size="10.5" fill="#5c3d00">action: pipeline must not re-apply revert</text>
+  <text x="2343.0" y="745.0" font-size="10.5" fill="#5c3d00">episode saved for precedent-researcher</text>
+  <path d="M485.0 210.0 L492.0 210.0 L492.0 210.0 L499.0 210.0" fill="none" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M747.0 210.0 L754.0 210.0 L754.0 210.0 L761.0 210.0" fill="none" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M1009.0 210.0 L1016.0 210.0 L1016.0 330.0 L1023.0 330.0" fill="none" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M1271.0 330.0 L1278.0 330.0 L1278.0 457.0 L1285.0 457.0" fill="none" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <line x1="1409.0" y1="512.0" x2="1409.0" y2="804.0" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M1533.0 457.0 L1540.0 457.0 L1540.0 591.0 L1547.0 591.0" fill="none" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <line x1="1671.0" y1="536.0" x2="1671.0" y2="498.0" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M1795.0 457.0 L1802.0 457.0 L1802.0 591.0 L1809.0 591.0" fill="none" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <line x1="1933.0" y1="543.0" x2="1933.0" y2="505.0" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M2057.0 457.0 L2064.0 457.0 L2064.0 725.0 L2071.0 725.0" fill="none" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <line x1="2195.0" y1="780.0" x2="2195.0" y2="804.0" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <line x1="2195.0" y1="804.0" x2="2195.0" y2="625.0" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <path d="M2319.0 591.0 L2326.0 591.0 L2326.0 210.0 L2333.0 210.0" fill="none" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <line x1="2457.0" y1="237.0" x2="2457.0" y2="684.0" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="60" y="894" width="2528" height="78" rx="8" fill="#fbfaff" stroke="#6741b8" stroke-width="1"/>
+  <text x="74" y="912" font-size="11" fill="#2f1e5c">Discriminating queries: deploy list / kubectl rollout history / flag audit ‖ PromQL: sum by(version)(rate(5xx)) / sum by(version)(rate(all)) · changes(kube_deployment_status_observed_generation[30m]) · increase(container_restarts[10m]) · sum(rate(http_requests_total[1m])) flat ⇒ not attack ‖ logs: panic|unwrap|FATAL.</text>
+  <text x="74" y="928" font-size="11" fill="#2f1e5c">Grounding (all READ): Cloudflare 2019-07-02 WAF regex — 13:42 deploy · 13:45 page · 14:07 kill · 14:09 recovered; attack suspected first · Cloudflare 2025-11-18 Bot Mgmt file — 126 min to identify, DDoS red herring · GitHub 2024-08-14 config revert 36 min · GitHub 2024-03-15 framework upgrade rollback 42 min · incident.io 2024-07-09 pipeline re-deployed the reverted change.</text>
+  <text x="74" y="944" font-size="11" fill="#2f1e5c">Why it matters to Smokejumper: change-correlator is the highest-yield question in the public record (config + deploy ≈ 65 of ~200 danluu postmortems); the verifier must check the fleet version AFTER rollback, not the rollback command&#x27;s exit code.</text>
+</svg>

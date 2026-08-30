@@ -10,15 +10,24 @@ the render contract, not a cosmetic hand edit.
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 from shutil import which
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "architecture" / "smokejumper-architecture.mmd"
-OUTPUT = ROOT / "architecture" / "smokejumper-architecture.svg"
+DEFAULT_SOURCE = ROOT / "architecture" / "system" / "c2-containers.mmd"
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    """Render one Mermaid source to its sibling ``.svg``.
+
+    Defaults to the canonical architecture diagram; pass another ``.mmd`` path
+    (e.g. ``architecture/system/proposed-atomic-agents.mmd``) to render a companion
+    diagram through the identical post-processing contract.
+    """
+    args = sys.argv[1:] if argv is None else argv
+    source = Path(args[0]).resolve() if args else DEFAULT_SOURCE
+    output = source.with_suffix(".svg")
     npx = which("npx")
     if npx is None:
         raise RuntimeError("npx is required to render the Mermaid architecture")
@@ -28,16 +37,16 @@ def main() -> int:
             "-y",
             "@mermaid-js/mermaid-cli",
             "-i",
-            str(SOURCE),
+            str(source),
             "-o",
-            str(OUTPUT),
+            str(output),
             "-b",
             "white",
         ],
         cwd=ROOT,
         check=True,
     )
-    rendered = OUTPUT.read_text(encoding="utf-8")
+    rendered = output.read_text(encoding="utf-8")
     marker = '<svg id="my-svg"'
     if marker not in rendered:
         raise RuntimeError("Mermaid output root changed; refusing an unverified post-process")
@@ -47,7 +56,7 @@ def main() -> int:
     rendered = rendered[:root_end] + background + rendered[root_end:]
     if not rendered.rstrip().endswith("</svg>"):
         raise RuntimeError("Mermaid output is not a complete SVG document")
-    OUTPUT.write_text(rendered, encoding="utf-8")
+    output.write_text(rendered, encoding="utf-8")
     return 0
 
 

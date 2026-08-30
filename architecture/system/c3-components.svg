@@ -1,0 +1,1046 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2200" height="2440" viewBox="0 0 2200 2440" font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="c3-title c3-desc">
+  <title id="c3-title">Smokejumper C4 Level 3 — components of the app container and the step ledger of one run</title>
+  <desc id="c3-desc">Every component inside the single app process, grouped by package, with landed / planned / proposed status; the two backing containers; and the ordered ledger of the smallest reported steps in one investigation run.</desc>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3d4852"/></marker></defs>
+  <rect width="2200" height="2440" fill="#ffffff"/>
+  <text x="60" y="70" font-size="28" fill="#10334a" font-weight="700">Smokejumper — C4 Level 3: components inside the app container</text>
+  <text x="60" y="98" font-size="13" fill="#5b6b7a">One process (docker compose service `app`) · every component by package · status against commit d0ed9fe on 2026-08-29 · reuse verdict per component from docs/plans/2026-08-29-reference-architecture-analysis.md</text>
+  <circle cx="66" cy="124" r="5" fill="#2b8a3e"/>
+  <text x="78" y="128" font-size="11.5" fill="#5b6b7a">landed — code + tests exist</text>
+  <circle cx="316" cy="124" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="328" y="128" font-size="11.5" fill="#5b6b7a">planned — in SPEC §12, not built</text>
+  <circle cx="566" cy="124" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="578" y="128" font-size="11.5" fill="#5b6b7a">proposed — pre-plan only</text>
+  <rect x="810" y="116" width="22" height="14" rx="3" fill="#e3f3f6" stroke="#0b7285"/>
+  <text x="838" y="128" font-size="11.5" fill="#5b6b7a">code you build</text>
+  <rect x="1010" y="116" width="22" height="14" rx="3" fill="#e6f4ea" stroke="#2b8a3e"/>
+  <text x="1038" y="128" font-size="11.5" fill="#5b6b7a">declarative files, zero code</text>
+  <rect x="1210" y="116" width="22" height="14" rx="3" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="4 3"/>
+  <text x="1238" y="128" font-size="11.5" fill="#5b6b7a">port / external</text>
+  <rect x="1410" y="116" width="22" height="14" rx="3" fill="#fbf0da" stroke="#9a6700"/>
+  <text x="1438" y="128" font-size="11.5" fill="#5b6b7a">approval-gated</text>
+  <rect x="1610" y="116" width="22" height="14" rx="3" fill="#efeafb" stroke="#6741b8"/>
+  <text x="1638" y="128" font-size="11.5" fill="#5b6b7a">audit spine</text>
+  <rect x="1810" y="116" width="22" height="14" rx="3" fill="#eef2fb" stroke="#3f5b9a"/>
+  <text x="1838" y="128" font-size="11.5" fill="#5b6b7a">data container</text>
+  <text x="60" y="145" font-size="11.5" fill="#5b6b7a" font-weight="700">reuse tag on each box:</text>
+  <rect x="195" y="135" width="40.0" height="13" rx="6" fill="#ffffff" stroke="#2b8a3e" stroke-width="0.9"/>
+  <text x="215.0" y="145" font-size="8.8" fill="#2b8a3e" font-weight="700" text-anchor="middle">ADOPT</text>
+  <text x="241.0" y="145" font-size="11" fill="#5b6b7a">pip dependency</text>
+  <rect x="351.8" y="135" width="51.199999999999996" height="13" rx="6" fill="#ffffff" stroke="#3f5b9a" stroke-width="0.9"/>
+  <text x="377.40000000000003" y="145" font-size="8.8" fill="#3f5b9a" font-weight="700" text-anchor="middle">CONSUME</text>
+  <text x="409.0" y="145" font-size="11" fill="#5b6b7a">existing server / hosted</text>
+  <rect x="581.8" y="135" width="34.4" height="13" rx="6" fill="#ffffff" stroke="#0b7285" stroke-width="0.9"/>
+  <text x="599.0" y="145" font-size="8.8" fill="#0b7285" font-weight="700" text-anchor="middle">COPY</text>
+  <text x="622.1999999999999" y="145" font-size="11" fill="#5b6b7a">design copied, we write it</text>
+  <rect x="807.4" y="135" width="40.0" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.9"/>
+  <text x="827.4" y="145" font-size="8.8" fill="#9a6700" font-weight="700" text-anchor="middle">BUILD</text>
+  <text x="853.4" y="145" font-size="11" fill="#5b6b7a">nothing exists — ours</text>
+  <rect x="1007.6" y="135" width="34.4" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.9"/>
+  <text x="1024.8" y="145" font-size="8.8" fill="#5b6b7a" font-weight="700" text-anchor="middle">KEEP</text>
+  <text x="1048.0" y="145" font-size="11" fill="#5b6b7a">landed, no change</text>
+  <rect x="60" y="158" width="2080" height="84" rx="10" fill="#f8f9fa" stroke="#8a99a8"/>
+  <text x="78" y="176" font-size="12" fill="#5b6b7a" font-weight="700">EXTERNAL SYSTEMS (outside the container)</text>
+  <rect x="78" y="186" width="214" height="46" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <text x="185.0" y="205" font-size="12" fill="#3d4852" font-weight="700" text-anchor="middle">Alertmanager</text>
+  <text x="185.0" y="222" font-size="10.5" fill="#5b6b7a" text-anchor="middle">webhook · peer-network allowlist</text>
+  <rect x="307" y="186" width="214" height="46" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <text x="414.0" y="205" font-size="12" fill="#3d4852" font-weight="700" text-anchor="middle">Grafana</text>
+  <text x="414.0" y="222" font-size="10.5" fill="#5b6b7a" text-anchor="middle">webhook · shared token · batches</text>
+  <rect x="536" y="186" width="214" height="46" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <text x="643.0" y="205" font-size="12" fill="#3d4852" font-weight="700" text-anchor="middle">Datadog</text>
+  <text x="643.0" y="222" font-size="10.5" fill="#5b6b7a" text-anchor="middle">webhook · bearer token</text>
+  <rect x="765" y="186" width="214" height="46" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <text x="872.0" y="205" font-size="12" fill="#3d4852" font-weight="700" text-anchor="middle">PagerDuty v3</text>
+  <text x="872.0" y="222" font-size="10.5" fill="#5b6b7a" text-anchor="middle">webhook · HMAC raw body</text>
+  <rect x="994" y="186" width="214" height="46" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <text x="1101.0" y="205" font-size="12" fill="#3d4852" font-weight="700" text-anchor="middle">Generic JSON</text>
+  <text x="1101.0" y="222" font-size="10.5" fill="#5b6b7a" text-anchor="middle">webhook · HMAC sha256=</text>
+  <rect x="1223" y="186" width="214" height="46" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <text x="1330.0" y="205" font-size="12" fill="#3d4852" font-weight="700" text-anchor="middle">Slack · Discord · Telegram</text>
+  <text x="1330.0" y="222" font-size="10.5" fill="#5b6b7a" text-anchor="middle">slack-bolt · discord.py · python-telegram-bot</text>
+  <rect x="1452" y="186" width="214" height="46" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <text x="1559.0" y="205" font-size="12" fill="#3d4852" font-weight="700" text-anchor="middle">Linear</text>
+  <text x="1559.0" y="222" font-size="10.5" fill="#5b6b7a" text-anchor="middle">GraphQL · tickets out</text>
+  <rect x="1681" y="186" width="214" height="46" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <text x="1788.0" y="205" font-size="12" fill="#3d4852" font-weight="700" text-anchor="middle">Prometheus · Loki</text>
+  <text x="1788.0" y="222" font-size="10.5" fill="#5b6b7a" text-anchor="middle">lab profile · read tier</text>
+  <rect x="1910" y="186" width="214" height="46" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <text x="2017.0" y="205" font-size="12" fill="#3d4852" font-weight="700" text-anchor="middle">LLM provider</text>
+  <text x="2017.0" y="222" font-size="10.5" fill="#5b6b7a" text-anchor="middle">SDK · via ports/model.py only</text>
+  <rect x="60" y="270" width="720" height="330" rx="10" fill="#fffdf9" stroke="#0b7285" stroke-width="1.4"/>
+  <text x="76" y="296" font-size="15" fill="#0b7285" font-weight="700">receiver/</text>
+  <text x="76" y="314" font-size="11" fill="#5b6b7a">deterministic · no LLM · verify before parse · 5 sources landed</text>
+  <rect x="76" y="326" width="220" height="118" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="88" cy="341" r="5" fill="#2b8a3e"/>
+  <text x="100" y="345" font-size="12.5" fill="#0b3a42" font-weight="700">routes.py</text>
+  <rect x="126.80000000000001" y="438" width="163.2" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.9"/>
+  <text x="208.4" y="447.5" font-size="8.8" fill="#5b6b7a" font-weight="700" text-anchor="middle">KEEP · Alerta webhook shape</text>
+  <text x="88" y="362" font-size="11" fill="#0b3a42">POST /webhooks/datadog</text>
+  <text x="88" y="377" font-size="11" fill="#0b3a42">POST /webhooks/pagerduty</text>
+  <text x="88" y="392" font-size="11" fill="#0b3a42">POST /webhooks/grafana</text>
+  <text x="88" y="407" font-size="11" fill="#0b3a42">POST /webhooks/alertmanager</text>
+  <text x="88" y="422" font-size="11" fill="#0b3a42">POST /webhooks/generic</text>
+  <rect x="308" y="326" width="220" height="118" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="320" cy="341" r="5" fill="#2b8a3e"/>
+  <text x="332" y="345" font-size="12.5" fill="#0b3a42" font-weight="700">verification.py</text>
+  <rect x="392.4" y="438" width="129.6" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.9"/>
+  <text x="457.2" y="447.5" font-size="8.8" fill="#5b6b7a" font-weight="700" text-anchor="middle">KEEP · vendor schemes</text>
+  <text x="320" y="362" font-size="11" fill="#0b3a42">verify_shared_token</text>
+  <text x="320" y="377" font-size="11" fill="#0b3a42">verify_hmac_signature</text>
+  <text x="320" y="392" font-size="11" fill="#0b3a42">verify_pagerduty_signature</text>
+  <text x="320" y="407" font-size="11" fill="#0b3a42">verify_source_ip (CIDR)</text>
+  <text x="320" y="422" font-size="11" fill="#0b3a42">constant-time compare</text>
+  <rect x="540" y="326" width="224" height="118" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="552" cy="341" r="5" fill="#2b8a3e"/>
+  <text x="564" y="345" font-size="12.5" fill="#0b3a42" font-weight="700">normalizers/</text>
+  <rect x="550.0" y="438" width="208.0" height="13" rx="6" fill="#ffffff" stroke="#0b7285" stroke-width="0.9"/>
+  <text x="654.0" y="447.5" font-size="8.8" fill="#0b7285" font-weight="700" text-anchor="middle">COPY · Alertmanager v4 + Keep enums</text>
+  <text x="552" y="362" font-size="11" fill="#0b3a42">datadog.py · sources.py</text>
+  <text x="552" y="377" font-size="11" fill="#0b3a42">pagerduty · grafana · alertmanager</text>
+  <text x="552" y="392" font-size="11" fill="#0b3a42">generic · identity-tag allowlist</text>
+  <text x="552" y="407" font-size="11" fill="#0b3a42">batch fan-out → N events</text>
+  <text x="552" y="422" font-size="11" fill="#0b3a42">recovery → window_closed_at</text>
+  <rect x="76" y="456" width="220" height="128" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="88" cy="471" r="5" fill="#2b8a3e"/>
+  <text x="100" y="475" font-size="12.5" fill="#0b3a42" font-weight="700">repository.py</text>
+  <rect x="110.0" y="578" width="180.0" height="13" rx="6" fill="#ffffff" stroke="#0b7285" stroke-width="0.9"/>
+  <text x="200.0" y="587.5" font-size="8.8" fill="#0b7285" font-weight="700" text-anchor="middle">COPY · Keep full/partial dedup</text>
+  <text x="88" y="492" font-size="11" fill="#0b3a42">admit() — advisory lock per fp</text>
+  <text x="88" y="507" font-size="11" fill="#0b3a42">15-min dedupe window</text>
+  <text x="88" y="522" font-size="11" fill="#0b3a42">quarantine() — 202 + reason</text>
+  <text x="88" y="537" font-size="11" fill="#0b3a42">close_window() on Recovered</text>
+  <text x="88" y="552" font-size="11" fill="#0b3a42">outbox: mark_queued / pending</text>
+  <rect x="308" y="456" width="220" height="128" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="320" cy="471" r="5" fill="#2b8a3e"/>
+  <text x="332" y="475" font-size="12.5" fill="#0b3a42" font-weight="700">delivery.py (outbox)</text>
+  <rect x="487.6" y="566" width="34.4" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.9"/>
+  <text x="504.8" y="575.5" font-size="8.8" fill="#5b6b7a" font-weight="700" text-anchor="middle">KEEP</text>
+  <text x="320" y="492" font-size="11" fill="#0b3a42">dispatch_event → XADD</text>
+  <text x="320" y="507" font-size="11" fill="#0b3a42">dispatch_pending retry loop</text>
+  <text x="320" y="522" font-size="11" fill="#0b3a42">OutboxHandle.status → /healthz</text>
+  <text x="320" y="537" font-size="11" fill="#0b3a42">Redis down ≠ lost event</text>
+  <rect x="540" y="456" width="224" height="60" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="552" cy="471" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="564" y="475" font-size="12.5" fill="#0b3a42" font-weight="700">storm_policy.py</text>
+  <rect x="583.6" y="510" width="174.39999999999998" height="13" rx="6" fill="#ffffff" stroke="#0b7285" stroke-width="0.9"/>
+  <text x="670.8" y="519.5" font-size="8.8" fill="#0b7285" font-weight="700" text-anchor="middle">COPY · Robusta GroupingParams</text>
+  <text x="552" y="492" font-size="11" fill="#0b3a42">21st fp in 5 min → kind=storm</text>
+  <text x="552" y="507" font-size="11" fill="#0b3a42">5-min quiet reset</text>
+  <rect x="540" y="524" width="224" height="60" rx="7" fill="#efeafb" stroke="#6741b8"/>
+  <circle cx="552" cy="539" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="564" y="543" font-size="12.5" fill="#2f1e5c" font-weight="700">audit for 401 / quarantine</text>
+  <rect x="718.0" y="578" width="40.0" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.9"/>
+  <text x="738.0" y="587.5" font-size="8.8" fill="#9a6700" font-weight="700" text-anchor="middle">BUILD</text>
+  <text x="552" y="560" font-size="11" fill="#2f1e5c">exact-B1 bytes → B8</text>
+  <text x="552" y="575" font-size="11" fill="#2f1e5c">rejected · quarantined kinds</text>
+  <rect x="800" y="270" width="380" height="330" rx="10" fill="#fffdf9" stroke="#0b7285" stroke-width="1.4"/>
+  <text x="816" y="296" font-size="15" fill="#0b7285" font-weight="700">queue/ · worker.py</text>
+  <text x="816" y="314" font-size="11" fill="#5b6b7a">Redis Streams · at-least-once · ack after commit</text>
+  <rect x="816" y="326" width="348" height="74" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="828" cy="341" r="5" fill="#2b8a3e"/>
+  <text x="840" y="345" font-size="12.5" fill="#0b3a42" font-weight="700">queue/producer.py</text>
+  <rect x="1062.0" y="332" width="96.0" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.9"/>
+  <text x="1110.0" y="341.5" font-size="8.8" fill="#5b6b7a" font-weight="700" text-anchor="middle">KEEP · redis-py</text>
+  <text x="828" y="362" font-size="11" fill="#0b3a42">XADD agentevents maxlen=…</text>
+  <text x="828" y="377" font-size="11" fill="#0b3a42">event UUID reused as run_id</text>
+  <rect x="816" y="410" width="348" height="100" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="828" cy="425" r="5" fill="#2b8a3e"/>
+  <text x="840" y="429" font-size="12.5" fill="#0b3a42" font-weight="700">worker.py — consumer group `intelligence`</text>
+  <rect x="1123.6" y="504" width="34.4" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.9"/>
+  <text x="1140.8" y="513.5" font-size="8.8" fill="#5b6b7a" font-weight="700" text-anchor="middle">KEEP</text>
+  <text x="828" y="446" font-size="11" fill="#0b3a42">XREADGROUP block 2s · count 10</text>
+  <text x="828" y="461" font-size="11" fill="#0b3a42">handle(): open_run → engine → apply → close_run</text>
+  <text x="828" y="476" font-size="11" fill="#0b3a42">poison payload → ack · failure → leave pending</text>
+  <text x="828" y="491" font-size="11" fill="#0b3a42">queue_depth {lag, pending} → /healthz</text>
+  <rect x="816" y="520" width="168" height="64" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="828" cy="535" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="840" y="539" font-size="12.5" fill="#0b3a42" font-weight="700">reclaim (XAUTOCLAIM)</text>
+  <rect x="882.0" y="578" width="96.0" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.9"/>
+  <text x="930.0" y="587.5" font-size="8.8" fill="#5b6b7a" font-weight="700" text-anchor="middle">KEEP · redis-py</text>
+  <text x="828" y="556" font-size="11" fill="#0b3a42">stale pending of dead</text>
+  <text x="828" y="571" font-size="11" fill="#0b3a42">consumer — M4</text>
+  <rect x="996" y="520" width="168" height="64" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="1008" cy="535" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1020" y="539" font-size="12.5" fill="#0b3a42" font-weight="700">max in-flight = 3</text>
+  <rect x="983.6" y="578" width="174.39999999999998" height="13" rx="6" fill="#ffffff" stroke="#0b7285" stroke-width="0.9"/>
+  <text x="1070.8" y="587.5" font-size="8.8" fill="#0b7285" font-weight="700" text-anchor="middle">COPY · Alerta flapping window</text>
+  <text x="1008" y="556" font-size="11" fill="#0b3a42">semaphore · M4</text>
+  <text x="1008" y="571" font-size="11" fill="#0b3a42">storm brake lag&gt;25</text>
+  <rect x="1200" y="270" width="400" height="330" rx="10" fill="#fffdf9" stroke="#0b7285" stroke-width="1.4"/>
+  <text x="1216" y="296" font-size="15" fill="#0b7285" font-weight="700">app.py · cli.py</text>
+  <text x="1216" y="314" font-size="11" fill="#5b6b7a">FastAPI + Typer · composition root reads config only</text>
+  <rect x="1216" y="326" width="368" height="84" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="1228" cy="341" r="5" fill="#2b8a3e"/>
+  <text x="1240" y="345" font-size="12.5" fill="#0b3a42" font-weight="700">app.py</text>
+  <rect x="1487.6" y="332" width="90.39999999999999" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.9"/>
+  <text x="1532.8" y="341.5" font-size="8.8" fill="#5b6b7a" font-weight="700" text-anchor="middle">KEEP · FastAPI</text>
+  <text x="1228" y="362" font-size="11" fill="#0b3a42">GET /healthz — postgres · schema · redis · worker · outbox</text>
+  <text x="1228" y="377" font-size="11" fill="#0b3a42">GET /runs/{fingerprint} — conclusion + ticket + audit range</text>
+  <text x="1228" y="392" font-size="11" fill="#0b3a42">lifespan: outbox_task ∥ worker_task</text>
+  <rect x="1216" y="420" width="176" height="74" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="1228" cy="435" r="5" fill="#2b8a3e"/>
+  <text x="1240" y="439" font-size="12.5" fill="#0b3a42" font-weight="700">cli: check-config</text>
+  <rect x="1306.8" y="488" width="79.19999999999999" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.9"/>
+  <text x="1346.4" y="497.5" font-size="8.8" fill="#5b6b7a" font-weight="700" text-anchor="middle">KEEP · Typer</text>
+  <text x="1228" y="456" font-size="11" fill="#0b3a42">validates layered settings</text>
+  <text x="1228" y="471" font-size="11" fill="#0b3a42">exits non-zero fail-closed</text>
+  <rect x="1408" y="420" width="176" height="74" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="1420" cy="435" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1432" y="439" font-size="12.5" fill="#0b3a42" font-weight="700">cli: fixtures replay</text>
+  <rect x="1538.0" y="488" width="40.0" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.9"/>
+  <text x="1558.0" y="497.5" font-size="8.8" fill="#9a6700" font-weight="700" text-anchor="middle">BUILD</text>
+  <text x="1420" y="456" font-size="11" fill="#0b3a42">POST fixture w/ source cred</text>
+  <text x="1420" y="471" font-size="11" fill="#0b3a42">--source &lt;s&gt; · M1</text>
+  <rect x="1216" y="504" width="176" height="80" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="1228" cy="519" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1240" y="523" font-size="12.5" fill="#0b3a42" font-weight="700">cli: logs · runs latest</text>
+  <rect x="1346.0" y="578" width="40.0" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.9"/>
+  <text x="1366.0" y="587.5" font-size="8.8" fill="#9a6700" font-weight="700" text-anchor="middle">BUILD</text>
+  <text x="1228" y="540" font-size="11" fill="#0b3a42">logs --follow (broadcast)</text>
+  <text x="1228" y="555" font-size="11" fill="#0b3a42">runs latest --format id</text>
+  <text x="1228" y="570" font-size="11" fill="#0b3a42">M1</text>
+  <rect x="1408" y="504" width="176" height="80" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="1420" cy="519" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1432" y="523" font-size="12.5" fill="#0b3a42" font-weight="700">cli: replay · eval</text>
+  <rect x="1538.0" y="578" width="40.0" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.9"/>
+  <text x="1558.0" y="587.5" font-size="8.8" fill="#9a6700" font-weight="700" text-anchor="middle">BUILD</text>
+  <text x="1420" y="540" font-size="11" fill="#0b3a42">replay &lt;run_id&gt; from JSONL</text>
+  <text x="1420" y="555" font-size="11" fill="#0b3a42">eval → hit/total per agent</text>
+  <text x="1420" y="570" font-size="11" fill="#0b3a42">M6</text>
+  <rect x="1620" y="270" width="520" height="330" rx="10" fill="#fffdf9" stroke="#0b7285" stroke-width="1.4"/>
+  <text x="1636" y="296" font-size="15" fill="#0b7285" font-weight="700">config.py · ports/</text>
+  <text x="1636" y="314" font-size="11" fill="#5b6b7a">one Settings object · 8 Protocols · prod refuses stubs</text>
+  <rect x="1636" y="326" width="488" height="84" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="1648" cy="341" r="5" fill="#2b8a3e"/>
+  <text x="1660" y="345" font-size="12.5" fill="#0b3a42" font-weight="700">config.py — Settings</text>
+  <rect x="1971.6" y="332" width="146.39999999999998" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.9"/>
+  <text x="2044.8" y="341.5" font-size="8.8" fill="#5b6b7a" font-weight="700" text-anchor="middle">KEEP · pydantic-settings</text>
+  <text x="1648" y="362" font-size="11" fill="#0b3a42">defaults &lt; base.yaml &lt; &lt;env&gt;.yaml &lt; env vars &lt; flags</text>
+  <text x="1648" y="377" font-size="11" fill="#0b3a42">_fail_closed: prod ∧ stubbed security port → ConfigError</text>
+  <text x="1648" y="392" font-size="11" fill="#0b3a42">unpriced prod model → ConfigError (M4) · lab only in local</text>
+  <rect x="1636" y="420" width="116" height="74" rx="7" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <circle cx="1648" cy="435" r="5" fill="#2b8a3e"/>
+  <text x="1660" y="439" font-size="10.5" fill="#3d4852" font-weight="700">AuthPort</text>
+  <text x="1648" y="456" font-size="9.5" fill="#3d4852">stub: AllowAll</text>
+  <text x="1648" y="471" font-size="9.5" fill="#3d4852">real: M2–M5</text>
+  <rect x="1758" y="420" width="116" height="74" rx="7" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <circle cx="1770" cy="435" r="5" fill="#2b8a3e"/>
+  <text x="1782" y="439" font-size="10.5" fill="#3d4852" font-weight="700">GovernancePort</text>
+  <text x="1770" y="456" font-size="9.5" fill="#3d4852">stub: NoopGovernance</text>
+  <text x="1770" y="471" font-size="9.5" fill="#3d4852">real: M2–M5</text>
+  <rect x="1880" y="420" width="116" height="74" rx="7" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <circle cx="1892" cy="435" r="5" fill="#2b8a3e"/>
+  <text x="1904" y="439" font-size="10.5" fill="#3d4852" font-weight="700">TenancyPort</text>
+  <text x="1892" y="456" font-size="9.5" fill="#3d4852">stub: SingleTenant — real</text>
+  <text x="1892" y="471" font-size="9.5" fill="#3d4852">real: M2–M5</text>
+  <rect x="2002" y="420" width="116" height="74" rx="7" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <circle cx="2014" cy="435" r="5" fill="#2b8a3e"/>
+  <text x="2026" y="439" font-size="10.5" fill="#3d4852" font-weight="700">ModelProvider</text>
+  <text x="2014" y="456" font-size="9.5" fill="#3d4852">stub: RecordedModel</text>
+  <text x="2014" y="471" font-size="9.5" fill="#3d4852">real: M2–M5</text>
+  <rect x="1636" y="504" width="116" height="74" rx="7" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <circle cx="1648" cy="519" r="5" fill="#2b8a3e"/>
+  <text x="1660" y="523" font-size="10.5" fill="#3d4852" font-weight="700">PlatformPort</text>
+  <text x="1648" y="540" font-size="9.5" fill="#3d4852">stub: FixturePlatform</text>
+  <text x="1648" y="555" font-size="9.5" fill="#3d4852">real: M2–M5</text>
+  <rect x="1758" y="504" width="116" height="74" rx="7" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <circle cx="1770" cy="519" r="5" fill="#2b8a3e"/>
+  <text x="1782" y="523" font-size="10.5" fill="#3d4852" font-weight="700">TicketingPort</text>
+  <text x="1770" y="540" font-size="9.5" fill="#3d4852">stub: FixtureTicketing</text>
+  <text x="1770" y="555" font-size="9.5" fill="#3d4852">real: M2–M5</text>
+  <rect x="1880" y="504" width="116" height="74" rx="7" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <circle cx="1892" cy="519" r="5" fill="#2b8a3e"/>
+  <text x="1904" y="523" font-size="10.5" fill="#3d4852" font-weight="700">MemoryPort</text>
+  <text x="1892" y="540" font-size="9.5" fill="#3d4852">stub: InMemoryStore</text>
+  <text x="1892" y="555" font-size="9.5" fill="#3d4852">real: M2–M5</text>
+  <rect x="2002" y="504" width="116" height="74" rx="7" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <circle cx="2014" cy="519" r="5" fill="#2b8a3e"/>
+  <text x="2026" y="523" font-size="10.5" fill="#3d4852" font-weight="700">ChannelAdapter</text>
+  <text x="2014" y="540" font-size="9.5" fill="#3d4852">stub: FakeChannel</text>
+  <text x="2014" y="555" font-size="9.5" fill="#3d4852">real: M2–M5</text>
+  <rect x="60" y="630" width="1400" height="640" rx="10" fill="#fffdf9" stroke="#0b7285" stroke-width="1.4"/>
+  <text x="76" y="656" font-size="15" fill="#0b7285" font-weight="700">intelligence/</text>
+  <text x="76" y="674" font-size="11" fill="#5b6b7a">B2 in → B6 out · never imports actions · the only package that thinks</text>
+  <rect x="76" y="686" width="300" height="88" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="88" cy="701" r="5" fill="#2b8a3e"/>
+  <text x="100" y="705" font-size="12.5" fill="#0b3a42" font-weight="700">triage.py (current engine)</text>
+  <rect x="335.6" y="692" width="34.4" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.9"/>
+  <text x="352.8" y="701.5" font-size="8.8" fill="#5b6b7a" font-weight="700" text-anchor="middle">KEEP</text>
+  <text x="88" y="722" font-size="11" fill="#0b3a42">deterministic · alert-grounded</text>
+  <text x="88" y="737" font-size="11" fill="#0b3a42">needs_human | inconclusive only</text>
+  <text x="88" y="752" font-size="11" fill="#0b3a42">adapter: DeterministicTriage(ConclusionEngine)</text>
+  <rect x="76" y="784" width="300" height="118" rx="7" fill="#e6f4ea" stroke="#2b8a3e"/>
+  <circle cx="88" cy="799" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="100" y="803" font-size="12.5" fill="#1b4d24" font-weight="700">workflows/ — deterministic edges</text>
+  <rect x="195.60000000000002" y="896" width="174.39999999999998" height="13" rx="6" fill="#ffffff" stroke="#2b8a3e" stroke-width="0.9"/>
+  <text x="282.8" y="905.5" font-size="8.8" fill="#2b8a3e" font-weight="700" text-anchor="middle">ADOPT · LangGraph 1.2 · @task</text>
+  <text x="88" y="820" font-size="11" fill="#1b4d24">registry/workflows/alert.yaml</text>
+  <text x="88" y="835" font-size="11" fill="#1b4d24">slack-question · mitigate · learn</text>
+  <text x="88" y="850" font-size="11" fill="#1b4d24">effort ladder: low ≤2 · med ≤4 · high ≤8 agents</text>
+  <text x="88" y="865" font-size="11" fill="#1b4d24">phase order fixed; no LLM chooses it</text>
+  <text x="88" y="880" font-size="11" fill="#1b4d24">LangGraph graph + Postgres checkpointer</text>
+  <rect x="76" y="912" width="300" height="150" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="88" cy="927" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="100" y="931" font-size="12.5" fill="#0b3a42" font-weight="700">supervisor nodes (graph/nodes/*.py)</text>
+  <rect x="162.0" y="1056" width="208.0" height="13" rx="6" fill="#ffffff" stroke="#2b8a3e" stroke-width="0.9"/>
+  <text x="266.0" y="1065.5" font-size="8.8" fill="#2b8a3e" font-weight="700" text-anchor="middle">ADOPT · LangGraph + pg checkpointer</text>
+  <text x="88" y="948" font-size="11" fill="#0b3a42">intake — B2 → state</text>
+  <text x="88" y="963" font-size="11" fill="#0b3a42">retrieve — B3 KnowledgeBundle under budget</text>
+  <text x="88" y="978" font-size="11" fill="#0b3a42">plan — WHICH agents + context_slice  [llm]</text>
+  <text x="88" y="993" font-size="11" fill="#0b3a42">dispatch — N Assignments ∥ (gather)</text>
+  <text x="88" y="1008" font-size="11" fill="#0b3a42">aggregate — registry-stable order</text>
+  <text x="88" y="1023" font-size="11" fill="#0b3a42">verify — V1/V2 gate  [proposed]</text>
+  <text x="88" y="1038" font-size="11" fill="#0b3a42">synthesize — B6  [llm] · root_caused iff verified</text>
+  <rect x="76" y="1072" width="300" height="100" rx="7" fill="#efeafb" stroke="#6741b8"/>
+  <circle cx="88" cy="1087" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="100" y="1091" font-size="12.5" fill="#2f1e5c" font-weight="700">hypothesis_board.py</text>
+  <rect x="218.0" y="1166" width="152.0" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.9"/>
+  <text x="294.0" y="1175.5" font-size="8.8" fill="#9a6700" font-weight="700" text-anchor="middle">BUILD · no library exists</text>
+  <text x="88" y="1108" font-size="11" fill="#2f1e5c">Hypothesis{text, state, evidence_refs, owner}</text>
+  <text x="88" y="1123" font-size="11" fill="#2f1e5c">open · validated · invalidated · inconclusive</text>
+  <text x="88" y="1138" font-size="11" fill="#2f1e5c">written by plan/I7/V1 · read by synthesize/C2</text>
+  <text x="88" y="1153" font-size="11" fill="#2f1e5c">checkpointed with graph state</text>
+  <rect x="76" y="1182" width="300" height="62" rx="7" fill="#e6f4ea" stroke="#2b8a3e"/>
+  <circle cx="88" cy="1197" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="100" y="1201" font-size="12.5" fill="#1b4d24" font-weight="700">prompts/supervisor/</text>
+  <rect x="195.60000000000002" y="1238" width="174.39999999999998" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.9"/>
+  <text x="282.8" y="1247.5" font-size="8.8" fill="#5b6b7a" font-weight="700" text-anchor="middle">KEEP · git + sha256, ADR-0020</text>
+  <text x="88" y="1218" font-size="11" fill="#1b4d24">plan/v1.md · synthesize/v1.md · verify/v1.md</text>
+  <text x="88" y="1233" font-size="11" fill="#1b4d24">sha256 stamped on every llm_call</text>
+  <rect x="392" y="686" width="340" height="250" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="404" cy="701" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="416" y="705" font-size="12.5" fill="#0b3a42" font-weight="700">agent_runner.py — one Assignment → one Finding</text>
+  <rect x="562.8" y="918" width="163.2" height="13" rx="6" fill="#ffffff" stroke="#0b7285" stroke-width="0.9"/>
+  <text x="644.4" y="927.5" font-size="8.8" fill="#0b7285" font-weight="700" text-anchor="middle">COPY · HolmesGPT safeguards</text>
+  <text x="404" y="722" font-size="11" fill="#0b3a42">1 load registry/agents/&lt;name&gt;.yaml (AgentSpec)</text>
+  <text x="404" y="737" font-size="11" fill="#0b3a42">2 resolve prompt_ref → text + sha256</text>
+  <text x="404" y="752" font-size="11" fill="#0b3a42">3 preload skills/&lt;s&gt;/SKILL.md ≤5k tokens</text>
+  <text x="404" y="767" font-size="11" fill="#0b3a42">4 validate input against schemas/…in.json</text>
+  <text x="404" y="782" font-size="11" fill="#0b3a42">5 loop ≤max_turns: model turn → tool call(s)</text>
+  <text x="404" y="797" font-size="11" fill="#0b3a42">    each tool call → mcp.gateway (B4)</text>
+  <text x="404" y="812" font-size="11" fill="#0b3a42">    each model turn → ports.model (B8 llm_call)</text>
+  <text x="404" y="827" font-size="11" fill="#0b3a42">    governor.charge() after every step</text>
+  <text x="404" y="842" font-size="11" fill="#0b3a42">6 validate output against schemas/…out.json</text>
+  <text x="404" y="857" font-size="11" fill="#0b3a42">7 emit Finding + artifact_ref + open_questions</text>
+  <text x="404" y="872" font-size="11" fill="#0b3a42">budget breach → partial Finding, never raise</text>
+  <text x="404" y="887" font-size="11" fill="#0b3a42">stateless: no memory between runs</text>
+  <rect x="392" y="946" width="164" height="100" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="404" cy="961" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="416" y="965" font-size="12.5" fill="#0b3a42" font-weight="700">registry_loader.py</text>
+  <rect x="353.20000000000005" y="1040" width="196.79999999999998" height="13" rx="6" fill="#ffffff" stroke="#0b7285" stroke-width="0.9"/>
+  <text x="451.6" y="1049.5" font-size="8.8" fill="#0b7285" font-weight="700" text-anchor="middle">COPY · PydanticAI AgentSpec shape</text>
+  <text x="404" y="982" font-size="11" fill="#0b3a42">AgentSpec pydantic schema</text>
+  <text x="404" y="997" font-size="11" fill="#0b3a42">boot resolves every prompt_ref</text>
+  <text x="404" y="1012" font-size="11" fill="#0b3a42">hot-reload on Governor tick</text>
+  <text x="404" y="1027" font-size="11" fill="#0b3a42">disabled agents never dispatch</text>
+  <rect x="568" y="946" width="164" height="100" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="580" cy="961" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="592" y="965" font-size="12.5" fill="#0b3a42" font-weight="700">prompt_registry.py</text>
+  <rect x="602.0" y="1040" width="124.0" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.9"/>
+  <text x="664.0" y="1049.5" font-size="8.8" fill="#5b6b7a" font-weight="700" text-anchor="middle">KEEP · git, ADR-0020</text>
+  <text x="580" y="982" font-size="11" fill="#0b3a42">GitPromptRegistry</text>
+  <text x="580" y="997" font-size="11" fill="#0b3a42">prompts/agents/&lt;n&gt;/vN.md</text>
+  <text x="580" y="1012" font-size="11" fill="#0b3a42">immutable versions</text>
+  <text x="580" y="1027" font-size="11" fill="#0b3a42">dangling ref fails boot</text>
+  <rect x="392" y="1056" width="164" height="90" rx="7" fill="#e6f4ea" stroke="#2b8a3e"/>
+  <circle cx="404" cy="1071" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="416" y="1075" font-size="12.5" fill="#1b4d24" font-weight="700">skill_loader.py</text>
+  <rect x="386.8" y="1140" width="163.2" height="13" rx="6" fill="#ffffff" stroke="#2b8a3e" stroke-width="0.9"/>
+  <text x="468.4" y="1149.5" font-size="8.8" fill="#2b8a3e" font-weight="700" text-anchor="middle">ADOPT · agentskills.io spec</text>
+  <text x="404" y="1092" font-size="11" fill="#1b4d24">skills/&lt;name&gt;/SKILL.md</text>
+  <text x="404" y="1107" font-size="11" fill="#1b4d24">frontmatter name/desc</text>
+  <text x="404" y="1122" font-size="11" fill="#1b4d24">≤500 lines · refs 1 deep</text>
+  <rect x="568" y="1056" width="164" height="90" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="580" cy="1071" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="592" y="1075" font-size="12.5" fill="#0b3a42" font-weight="700">schema_validator.py</text>
+  <rect x="546.0" y="1140" width="180.0" height="13" rx="6" fill="#ffffff" stroke="#2b8a3e" stroke-width="0.9"/>
+  <text x="636.0" y="1149.5" font-size="8.8" fill="#2b8a3e" font-weight="700" text-anchor="middle">ADOPT · langchain ToolStrategy</text>
+  <text x="580" y="1092" font-size="11" fill="#0b3a42">schemas/agents/*.in|out</text>
+  <text x="580" y="1107" font-size="11" fill="#0b3a42">reject before/after run</text>
+  <text x="580" y="1122" font-size="11" fill="#0b3a42">evidence_ref per claim</text>
+  <rect x="392" y="1156" width="340" height="88" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="404" cy="1171" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="416" y="1175" font-size="12.5" fill="#0b3a42" font-weight="700">eval_runner.py → `smokejumper eval`</text>
+  <rect x="495.6" y="1238" width="230.39999999999998" height="13" rx="6" fill="#ffffff" stroke="#0b7285" stroke-width="0.9"/>
+  <text x="610.8" y="1247.5" font-size="8.8" fill="#0b7285" font-weight="700" text-anchor="middle">COPY · HolmesGPT tests/llm + Inspect AI</text>
+  <text x="404" y="1192" font-size="11" fill="#0b3a42">evals/agents/&lt;name&gt;/*.json · ≥20 cases · ≥3 no-fault</text>
+  <text x="404" y="1207" font-size="11" fill="#0b3a42">judge: schema_valid · factual · citation · tool_efficiency</text>
+  <text x="404" y="1222" font-size="11" fill="#0b3a42">reports hit / total per agent · CI ≥ 4/5</text>
+  <text x="748" y="680" font-size="11.5" fill="#2b8a3e" font-weight="700">registry/agents/*.yaml + prompts/agents/*/vN.md — 32 question-agents, one directory each, zero code</text>
+  <rect x="748" y="694" width="166" height="100" rx="7" fill="#e6f4ea" stroke="#2b8a3e"/>
+  <circle cx="760" cy="709" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="772" y="713" font-size="12.5" fill="#1b4d24" font-weight="700">TRIAGE</text>
+  <text x="760" y="730" font-size="11" fill="#1b4d24">impact-quantifier</text>
+  <text x="760" y="745" font-size="11" fill="#1b4d24">severity-assessor</text>
+  <text x="760" y="760" font-size="11" fill="#1b4d24">ownership-resolver</text>
+  <text x="760" y="775" font-size="11" fill="#1b4d24">known-issue-matcher</text>
+  <rect x="924" y="694" width="166" height="160" rx="7" fill="#e6f4ea" stroke="#2b8a3e"/>
+  <circle cx="936" cy="709" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="948" y="713" font-size="12.5" fill="#1b4d24" font-weight="700">INVESTIGATE ∥ read</text>
+  <text x="936" y="730" font-size="11" fill="#1b4d24">change-correlator</text>
+  <text x="936" y="745" font-size="11" fill="#1b4d24">saturation-finder</text>
+  <text x="936" y="760" font-size="11" fill="#1b4d24">error-signature-summarizer</text>
+  <text x="936" y="775" font-size="11" fill="#1b4d24">blast-radius-mapper</text>
+  <text x="936" y="790" font-size="11" fill="#1b4d24">vendor-fault-checker</text>
+  <text x="936" y="805" font-size="11" fill="#1b4d24">precedent-researcher</text>
+  <text x="936" y="820" font-size="11" fill="#1b4d24">hypothesis-tracker</text>
+  <text x="936" y="835" font-size="11" fill="#1b4d24">bisection-planner</text>
+  <rect x="1100" y="694" width="166" height="85" rx="7" fill="#e6f4ea" stroke="#2b8a3e"/>
+  <circle cx="1112" cy="709" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="1124" y="713" font-size="12.5" fill="#1b4d24" font-weight="700">VERIFY (gate)</text>
+  <text x="1112" y="730" font-size="11" fill="#1b4d24">adversarial-verifier</text>
+  <text x="1112" y="745" font-size="11" fill="#1b4d24">temporal-order-checker</text>
+  <text x="1112" y="760" font-size="11" fill="#1b4d24">mitigation-verifier</text>
+  <rect x="1276" y="694" width="166" height="85" rx="7" fill="#e6f4ea" stroke="#2b8a3e"/>
+  <circle cx="1288" cy="709" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="1300" y="713" font-size="12.5" fill="#1b4d24" font-weight="700">DETECT</text>
+  <text x="1288" y="730" font-size="11" fill="#1b4d24">symptom-classifier</text>
+  <text x="1288" y="745" font-size="11" fill="#1b4d24">storm-root-picker</text>
+  <text x="1288" y="760" font-size="11" fill="#1b4d24">alert-quality-auditor</text>
+  <rect x="748" y="804" width="166" height="115" rx="7" fill="#e6f4ea" stroke="#2b8a3e"/>
+  <circle cx="760" cy="819" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="772" y="823" font-size="12.5" fill="#1b4d24" font-weight="700">COMMUNICATE</text>
+  <text x="760" y="840" font-size="11" fill="#1b4d24">timeline-scribe</text>
+  <text x="760" y="855" font-size="11" fill="#1b4d24">internal-update-drafter</text>
+  <text x="760" y="870" font-size="11" fill="#1b4d24">status-page-drafter</text>
+  <text x="760" y="885" font-size="11" fill="#1b4d24">stakeholder-notifier</text>
+  <text x="760" y="900" font-size="11" fill="#1b4d24">handoff-packager</text>
+  <rect x="924" y="864" width="166" height="100" rx="7" fill="#fbf0da" stroke="#9a6700"/>
+  <circle cx="936" cy="879" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="948" y="883" font-size="12.5" fill="#5c3d00" font-weight="700">MITIGATE</text>
+  <text x="936" y="900" font-size="11" fill="#5c3d00">mitigation-ranker (draft)</text>
+  <text x="936" y="915" font-size="11" fill="#5c3d00">runbook-stepper (draft)</text>
+  <text x="936" y="930" font-size="11" fill="#5c3d00">rollback-executor  ACT</text>
+  <text x="936" y="945" font-size="11" fill="#5c3d00">flag-toggler  ACT</text>
+  <rect x="1100" y="789" width="166" height="70" rx="7" fill="#e6f4ea" stroke="#2b8a3e"/>
+  <circle cx="1112" cy="804" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="1124" y="808" font-size="12.5" fill="#1b4d24" font-weight="700">RESOLVE</text>
+  <text x="1112" y="825" font-size="11" fill="#1b4d24">recovery-confirmer</text>
+  <text x="1112" y="840" font-size="11" fill="#1b4d24">divergence-tracker</text>
+  <rect x="1276" y="789" width="166" height="130" rx="7" fill="#e6f4ea" stroke="#2b8a3e"/>
+  <circle cx="1288" cy="804" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="1300" y="808" font-size="12.5" fill="#1b4d24" font-weight="700">LEARN / PREVENT</text>
+  <text x="1288" y="825" font-size="11" fill="#1b4d24">postmortem-drafter</text>
+  <text x="1288" y="840" font-size="11" fill="#1b4d24">factor-extractor</text>
+  <text x="1288" y="855" font-size="11" fill="#1b4d24">action-item-gate</text>
+  <text x="1288" y="870" font-size="11" fill="#1b4d24">action-item-chaser</text>
+  <text x="1288" y="885" font-size="11" fill="#1b4d24">trend-analyst</text>
+  <text x="1288" y="900" font-size="11" fill="#1b4d24">expiry-forecaster</text>
+  <text x="748" y="1086" font-size="11" fill="#5b6b7a">SPEC §5.3 today: Metrics Analyst · Log Analyst · Change Auditor (planned personas) →</text>
+  <text x="748" y="1102" font-size="11" fill="#5b6b7a">become saturation-finder · error-signature-summarizer · change-correlator above.</text>
+  <rect x="748" y="1116" width="692" height="128" rx="7" fill="#efeafb" stroke="#6741b8"/>
+  <circle cx="760" cy="1131" r="5" fill="#2b8a3e"/>
+  <text x="772" y="1135" font-size="12.5" fill="#2f1e5c" font-weight="700">Finding (B11) — the only thing that crosses an agent boundary</text>
+  <rect x="1226.0" y="1226" width="208.0" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.9"/>
+  <text x="1330.0" y="1235.5" font-size="8.8" fill="#9a6700" font-weight="700" text-anchor="middle">BUILD · +Hypothesis +Evidence typed</text>
+  <text x="760" y="1152" font-size="11" fill="#2f1e5c">agent · hypothesis · evidence[] → evidence_refs[] (→ EvidenceRecord, proposed) · confidence · budget_spent</text>
+  <text x="760" y="1167" font-size="11" fill="#2f1e5c">+ artifact_ref (full result in recorder) · + open_questions[] — ≤2k tokens to the parent, never the trace</text>
+  <text x="760" y="1182" font-size="11" fill="#2f1e5c">Assignment (B11): agent · question · context_slice · budget — sub-agents are stateless</text>
+  <rect x="1480" y="630" width="660" height="300" rx="10" fill="#fffdf9" stroke="#0b7285" stroke-width="1.4"/>
+  <text x="1496" y="656" font-size="15" fill="#0b7285" font-weight="700">knowledge/</text>
+  <text x="1496" y="674" font-size="11" fill="#5b6b7a">retrieve(ctx) → B3 · federates via mcp/, never its own client</text>
+  <rect x="1496" y="686" width="300" height="100" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="1508" cy="701" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1520" y="705" font-size="12.5" fill="#0b3a42" font-weight="700">facade.py</text>
+  <rect x="1750.0" y="692" width="40.0" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.9"/>
+  <text x="1770.0" y="701.5" font-size="8.8" fill="#9a6700" font-weight="700" text-anchor="middle">BUILD</text>
+  <text x="1508" y="722" font-size="11" fill="#0b3a42">episodes + recipes + federated</text>
+  <text x="1508" y="737" font-size="11" fill="#0b3a42">token + item budget → KnowledgeBundle</text>
+  <text x="1508" y="752" font-size="11" fill="#0b3a42">source_ref + score per item</text>
+  <text x="1508" y="767" font-size="11" fill="#0b3a42">graph_paths stays empty (post-v1)</text>
+  <rect x="1808" y="686" width="316" height="100" rx="7" fill="#eef2fb" stroke="#3f5b9a"/>
+  <circle cx="1820" cy="701" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1832" y="705" font-size="12.5" fill="#1f2d4a" font-weight="700">episodes (PostgresMemory)</text>
+  <rect x="2016.4" y="780" width="101.6" height="13" rx="6" fill="#ffffff" stroke="#2b8a3e" stroke-width="0.9"/>
+  <text x="2067.2" y="789.5" font-size="8.8" fill="#2b8a3e" font-weight="700" text-anchor="middle">ADOPT · pgvector</text>
+  <text x="1820" y="722" font-size="11" fill="#1f2d4a">pgvector · dimension fixed by owner</text>
+  <text x="1820" y="737" font-size="11" fill="#1f2d4a">valid_at / recorded_at bi-temporal</text>
+  <text x="1820" y="752" font-size="11" fill="#1f2d4a">supersede by insert, never delete</text>
+  <text x="1820" y="767" font-size="11" fill="#1f2d4a">as_of=T → replay belief at T</text>
+  <rect x="1496" y="796" width="300" height="100" rx="7" fill="#e6f4ea" stroke="#2b8a3e"/>
+  <circle cx="1508" cy="811" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1520" y="815" font-size="12.5" fill="#1b4d24" font-weight="700">recipes/*.yaml</text>
+  <rect x="1643.6" y="802" width="146.39999999999998" height="13" rx="6" fill="#ffffff" stroke="#0b7285" stroke-width="0.9"/>
+  <text x="1716.8" y="811.5" font-size="8.8" fill="#0b7285" font-weight="700" text-anchor="middle">COPY · Robusta playbooks</text>
+  <text x="1508" y="832" font-size="11" fill="#1b4d24">Recipe{name, triggers.tags, steps, tools}</text>
+  <text x="1508" y="847" font-size="11" fill="#1b4d24">trigger match on entity tags</text>
+  <text x="1508" y="862" font-size="11" fill="#1b4d24">hand-authored; drafts/ post-v1 Distiller</text>
+  <rect x="1808" y="796" width="316" height="100" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="1820" cy="811" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1832" y="815" font-size="12.5" fill="#0b3a42" font-weight="700">federated (stub) · embed</text>
+  <rect x="1938.0" y="890" width="180.0" height="13" rx="6" fill="#ffffff" stroke="#2b8a3e" stroke-width="0.9"/>
+  <text x="2028.0" y="899.5" font-size="8.8" fill="#2b8a3e" font-weight="700" text-anchor="middle">ADOPT · langchain-mcp-adapters</text>
+  <text x="1820" y="832" font-size="11" fill="#0b3a42">federated[] = [] until M5</text>
+  <text x="1820" y="847" font-size="11" fill="#0b3a42">ModelProvider.embed → vector width check</text>
+  <text x="1820" y="862" font-size="11" fill="#0b3a42">B8 embed_call recorded</text>
+  <rect x="1480" y="950" width="660" height="320" rx="10" fill="#fffdf9" stroke="#0b7285" stroke-width="1.4"/>
+  <text x="1496" y="976" font-size="15" fill="#0b7285" font-weight="700">governor/</text>
+  <text x="1496" y="994" font-size="11" fill="#5b6b7a">per AGENT FILE first, per run second · fails closed</text>
+  <rect x="1496" y="1006" width="300" height="110" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="1508" cy="1021" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1520" y="1025" font-size="12.5" fill="#0b3a42" font-weight="700">budget.py + ledger.py</text>
+  <rect x="1593.2" y="1110" width="196.79999999999998" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.9"/>
+  <text x="1691.6" y="1119.5" font-size="8.8" fill="#9a6700" font-weight="700" text-anchor="middle">BUILD · + litellm completion_cost</text>
+  <text x="1508" y="1042" font-size="11" fill="#0b3a42">max_tool_calls · max_tokens · max_turns · timeout</text>
+  <text x="1508" y="1057" font-size="11" fill="#0b3a42">Decimal USD ledger in Postgres</text>
+  <text x="1508" y="1072" font-size="11" fill="#0b3a42">price table settings.model.prices</text>
+  <text x="1508" y="1087" font-size="11" fill="#0b3a42">unpriced prod model → boot failure</text>
+  <text x="1508" y="1102" font-size="11" fill="#0b3a42">breach → inconclusive w/ partial findings</text>
+  <rect x="1808" y="1006" width="316" height="110" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="1820" cy="1021" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1832" y="1025" font-size="12.5" fill="#0b3a42" font-weight="700">breaker.py</text>
+  <rect x="1949.2" y="1012" width="168.79999999999998" height="13" rx="6" fill="#ffffff" stroke="#2b8a3e" stroke-width="0.9"/>
+  <text x="2033.6" y="1021.5" font-size="8.8" fill="#2b8a3e" font-weight="700" text-anchor="middle">ADOPT · tenacity · purgatory</text>
+  <text x="1820" y="1042" font-size="11" fill="#0b3a42">3 consecutive provider failures</text>
+  <text x="1820" y="1057" font-size="11" fill="#0b3a42">→ pause consumption 60s</text>
+  <text x="1820" y="1072" font-size="11" fill="#0b3a42">→ needs_human for open runs</text>
+  <text x="1820" y="1087" font-size="11" fill="#0b3a42">tests at 2 vs 3, pause −1s vs +1s</text>
+  <rect x="1496" y="1126" width="300" height="124" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="1508" cy="1141" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1520" y="1145" font-size="12.5" fill="#0b3a42" font-weight="700">scheduler.py (APScheduler)</text>
+  <rect x="1643.6" y="1244" width="146.39999999999998" height="13" rx="6" fill="#ffffff" stroke="#2b8a3e" stroke-width="0.9"/>
+  <text x="1716.8" y="1253.5" font-size="8.8" fill="#2b8a3e" font-weight="700" text-anchor="middle">ADOPT · APScheduler 3.11</text>
+  <text x="1508" y="1162" font-size="11" fill="#0b3a42">registry sync tick</text>
+  <text x="1508" y="1177" font-size="11" fill="#0b3a42">approval-expiry sweep (30 min)</text>
+  <text x="1508" y="1192" font-size="11" fill="#0b3a42">recipe-driven scheduled investigations</text>
+  <text x="1508" y="1207" font-size="11" fill="#0b3a42">LEARN/PREVENT agents: daily · weekly · monthly</text>
+  <text x="1508" y="1222" font-size="11" fill="#0b3a42">emit ordinary B2 events</text>
+  <rect x="1808" y="1126" width="316" height="124" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="1820" cy="1141" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1832" y="1145" font-size="12.5" fill="#0b3a42" font-weight="700">storm_brake.py</text>
+  <rect x="1966.0" y="1232" width="152.0" height="13" rx="6" fill="#ffffff" stroke="#0b7285" stroke-width="0.9"/>
+  <text x="2042.0" y="1241.5" font-size="8.8" fill="#0b7285" font-weight="700" text-anchor="middle">COPY · OnCall window step</text>
+  <text x="1820" y="1162" font-size="11" fill="#0b3a42">queue lag &gt; 25 → only critical|high dequeued</text>
+  <text x="1820" y="1177" font-size="11" fill="#0b3a42">tests at 25 vs 26</text>
+  <text x="1820" y="1192" font-size="11" fill="#0b3a42">worker max in-flight 3</text>
+  <text x="1820" y="1207" font-size="11" fill="#0b3a42">RPM/TPM limiter on provider</text>
+  <rect x="60" y="1300" width="1120" height="400" rx="10" fill="#fffdf9" stroke="#0b7285" stroke-width="1.4"/>
+  <text x="76" y="1326" font-size="15" fill="#0b7285" font-weight="700">mcp/</text>
+  <text x="76" y="1344" font-size="11" fill="#5b6b7a">ONE client · ONE manifest · TWO enforcement points (ADR-0010, -0017)</text>
+  <rect x="76" y="1356" width="250" height="110" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="88" cy="1371" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="100" y="1375" font-size="12.5" fill="#0b3a42" font-weight="700">gateway.py — the only MCP client</text>
+  <rect x="117.60000000000002" y="1460" width="202.39999999999998" height="13" rx="6" fill="#ffffff" stroke="#2b8a3e" stroke-width="0.9"/>
+  <text x="218.8" y="1469.5" font-size="8.8" fill="#2b8a3e" font-weight="700" text-anchor="middle">ADOPT · langchain-mcp-adapters 0.3</text>
+  <text x="88" y="1392" font-size="11" fill="#0b3a42">FastMCP in-memory transport</text>
+  <text x="88" y="1407" font-size="11" fill="#0b3a42">Client(server) same process</text>
+  <text x="88" y="1422" font-size="11" fill="#0b3a42">federated: HTTPS + cert verify</text>
+  <text x="88" y="1437" font-size="11" fill="#0b3a42">every call → B8 tool_call</text>
+  <rect x="338" y="1356" width="250" height="110" rx="7" fill="#e6f4ea" stroke="#2b8a3e"/>
+  <circle cx="350" cy="1371" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="362" y="1375" font-size="12.5" fill="#1b4d24" font-weight="700">manifest.yaml + loader</text>
+  <rect x="542.0" y="1362" width="40.0" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.9"/>
+  <text x="562.0" y="1371.5" font-size="8.8" fill="#9a6700" font-weight="700" text-anchor="middle">BUILD</text>
+  <text x="350" y="1392" font-size="11" fill="#1b4d24">tool → tier (read | privileged)</text>
+  <text x="350" y="1407" font-size="11" fill="#1b4d24">unknown tool / dup / no tier → boot fail</text>
+  <text x="350" y="1422" font-size="11" fill="#1b4d24">registry tool absent → boot fail</text>
+  <text x="350" y="1437" font-size="11" fill="#1b4d24">privileged set EMPTY in prod</text>
+  <rect x="600" y="1356" width="250" height="110" rx="7" fill="#fbf0da" stroke="#9a6700"/>
+  <circle cx="612" cy="1371" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="624" y="1375" font-size="12.5" fill="#5c3d00" font-weight="700">tiers.py — two checks</text>
+  <rect x="647.2" y="1460" width="196.79999999999998" height="13" rx="6" fill="#ffffff" stroke="#2b8a3e" stroke-width="0.9"/>
+  <text x="745.6" y="1469.5" font-size="8.8" fill="#2b8a3e" font-weight="700" text-anchor="middle">ADOPT · wrap_tool_call middleware</text>
+  <text x="612" y="1392" font-size="11" fill="#5c3d00">① on_call_tool middleware → ToolError</text>
+  <text x="612" y="1407" font-size="11" fill="#5c3d00">② executor re-check before dispatch</text>
+  <text x="612" y="1422" font-size="11" fill="#5c3d00">each proven to deny ALONE</text>
+  <text x="612" y="1437" font-size="11" fill="#5c3d00">privileged → B5 interrupt</text>
+  <rect x="862" y="1356" width="302" height="110" rx="7" fill="#fbf0da" stroke="#9a6700"/>
+  <circle cx="874" cy="1371" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="886" y="1375" font-size="12.5" fill="#5c3d00" font-weight="700">approvals.py — B5 broker</text>
+  <rect x="944.4" y="1460" width="213.6" height="13" rx="6" fill="#ffffff" stroke="#0b7285" stroke-width="0.9"/>
+  <text x="1051.2" y="1469.5" font-size="8.8" fill="#0b7285" font-weight="700" text-anchor="middle">COPY · HolmesGPT ApprovalRequirement</text>
+  <text x="874" y="1392" font-size="11" fill="#5c3d00">mint(binding) → 256-bit opaque token</text>
+  <text x="874" y="1407" font-size="11" fill="#5c3d00">only sha stored · 30-min expiry</text>
+  <text x="874" y="1422" font-size="11" fill="#5c3d00">consume = ONE atomic UPDATE (race-safe)</text>
+  <text x="874" y="1437" font-size="11" fill="#5c3d00">expire sweep · Slack buttons · resume graph</text>
+  <rect x="76" y="1476" width="250" height="104" rx="7" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <circle cx="88" cy="1491" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="100" y="1495" font-size="12.5" fill="#3d4852" font-weight="700">existing MCP servers (bindings only)</text>
+  <rect x="151.20000000000002" y="1562" width="168.79999999999998" height="13" rx="6" fill="#ffffff" stroke="#3f5b9a" stroke-width="0.9"/>
+  <text x="235.60000000000002" y="1571.5" font-size="8.8" fill="#3f5b9a" font-weight="700" text-anchor="middle">CONSUME · 6 official servers</text>
+  <text x="88" y="1512" font-size="9.5" fill="#3d4852">grafana/mcp-grafana → Prom · Loki · alerting · on-call</text>
+  <text x="88" y="1527" font-size="9.5" fill="#3d4852">Datadog MCP (hosted, 50 calls/10s) · k8s-mcp --read-only</text>
+  <text x="88" y="1542" font-size="9.5" fill="#3d4852">github-mcp-server · mcp.linear.app · prometheus-mcp</text>
+  <rect x="338" y="1476" width="250" height="104" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="350" cy="1491" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="362" y="1495" font-size="12.5" fill="#0b3a42" font-weight="700">servers/ we still write (FastMCP 3.4)</text>
+  <rect x="385.20000000000005" y="1574" width="196.79999999999998" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.9"/>
+  <text x="483.6" y="1583.5" font-size="8.8" fill="#9a6700" font-weight="700" text-anchor="middle">BUILD · no external MCP has these</text>
+  <text x="350" y="1512" font-size="9.5" fill="#0b3a42">knowledge.search / expand → knowledge.facade</text>
+  <text x="350" y="1527" font-size="9.5" fill="#0b3a42">recipe.read → recipes/ · change.list → PlatformPort</text>
+  <text x="350" y="1542" font-size="9.5" fill="#0b3a42">channel.post_thread · channel.ask_with_buttons</text>
+  <text x="350" y="1557" font-size="9.5" fill="#0b3a42">testing/demo_destructive_noop (test config only)</text>
+  <rect x="600" y="1476" width="250" height="104" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="612" cy="1491" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="624" y="1495" font-size="12.5" fill="#0b3a42" font-weight="700">federated/loader.py</text>
+  <rect x="675.2" y="1574" width="168.79999999999998" height="13" rx="6" fill="#ffffff" stroke="#2b8a3e" stroke-width="0.9"/>
+  <text x="759.6" y="1583.5" font-size="8.8" fill="#2b8a3e" font-weight="700" text-anchor="middle">ADOPT · MultiServerMCPClient</text>
+  <text x="612" y="1512" font-size="11" fill="#0b3a42">descriptors/*.yaml: endpoint,</text>
+  <text x="612" y="1527" font-size="11" fill="#0b3a42">tool_allowlist, prefix</text>
+  <text x="612" y="1542" font-size="11" fill="#0b3a42">remote cannot widen surface</text>
+  <text x="612" y="1557" font-size="11" fill="#0b3a42">same client · same manifest · same checks</text>
+  <rect x="862" y="1476" width="302" height="104" rx="7" fill="#efeafb" stroke="#6741b8"/>
+  <circle cx="874" cy="1491" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="886" y="1495" font-size="12.5" fill="#2f1e5c" font-weight="700">evidence_snapshot.py</text>
+  <rect x="978.0" y="1574" width="180.0" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.9"/>
+  <text x="1068.0" y="1583.5" font-size="8.8" fill="#9a6700" font-weight="700" text-anchor="middle">BUILD · 13/14 products lack it</text>
+  <text x="874" y="1512" font-size="11" fill="#2f1e5c">EvidenceRecord{ref, tool, query, ts,</text>
+  <text x="874" y="1527" font-size="11" fill="#2f1e5c">result_sha256, snapshot_ref}</text>
+  <text x="874" y="1542" font-size="11" fill="#2f1e5c">written on EVERY witness read</text>
+  <text x="874" y="1557" font-size="11" fill="#2f1e5c">resolvable after vendor retention</text>
+  <text x="76" y="1606" font-size="11.5" fill="#0b7285" font-weight="700">witness ports — what an agent can see; 6 of 8 are bindings to the MCP servers above (COPY Keep BaseProvider shape), 2 in-process:</text>
+  <rect x="76" y="1616" width="132" height="78" rx="7" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <circle cx="88" cy="1631" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="100" y="1635" font-size="10.5" fill="#3d4852" font-weight="700">ChangeSource</text>
+  <rect x="150.8" y="1688" width="51.199999999999996" height="13" rx="6" fill="#ffffff" stroke="#3f5b9a" stroke-width="0.9"/>
+  <text x="176.4" y="1697.5" font-size="8.8" fill="#3f5b9a" font-weight="700" text-anchor="middle">CONSUME</text>
+  <text x="88" y="1652" font-size="9.5" fill="#3d4852">→ MCP binding</text>
+  <text x="88" y="1667" font-size="9.5" fill="#3d4852">domain packs swap it</text>
+  <rect x="213" y="1616" width="132" height="78" rx="7" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <circle cx="225" cy="1631" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="237" y="1635" font-size="10.5" fill="#3d4852" font-weight="700">MetricSource</text>
+  <rect x="287.8" y="1688" width="51.199999999999996" height="13" rx="6" fill="#ffffff" stroke="#3f5b9a" stroke-width="0.9"/>
+  <text x="313.4" y="1697.5" font-size="8.8" fill="#3f5b9a" font-weight="700" text-anchor="middle">CONSUME</text>
+  <text x="225" y="1652" font-size="9.5" fill="#3d4852">→ MCP binding</text>
+  <text x="225" y="1667" font-size="9.5" fill="#3d4852">domain packs swap it</text>
+  <rect x="350" y="1616" width="132" height="78" rx="7" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <circle cx="362" cy="1631" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="374" y="1635" font-size="10.5" fill="#3d4852" font-weight="700">LogSource</text>
+  <rect x="424.8" y="1688" width="51.199999999999996" height="13" rx="6" fill="#ffffff" stroke="#3f5b9a" stroke-width="0.9"/>
+  <text x="450.4" y="1697.5" font-size="8.8" fill="#3f5b9a" font-weight="700" text-anchor="middle">CONSUME</text>
+  <text x="362" y="1652" font-size="9.5" fill="#3d4852">→ MCP binding</text>
+  <text x="362" y="1667" font-size="9.5" fill="#3d4852">domain packs swap it</text>
+  <rect x="487" y="1616" width="132" height="78" rx="7" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <circle cx="499" cy="1631" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="511" y="1635" font-size="10.5" fill="#3d4852" font-weight="700">TraceSource</text>
+  <rect x="561.8" y="1688" width="51.199999999999996" height="13" rx="6" fill="#ffffff" stroke="#3f5b9a" stroke-width="0.9"/>
+  <text x="587.4" y="1697.5" font-size="8.8" fill="#3f5b9a" font-weight="700" text-anchor="middle">CONSUME</text>
+  <text x="499" y="1652" font-size="9.5" fill="#3d4852">→ MCP binding</text>
+  <text x="499" y="1667" font-size="9.5" fill="#3d4852">domain packs swap it</text>
+  <rect x="624" y="1616" width="132" height="78" rx="7" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <circle cx="636" cy="1631" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="648" y="1635" font-size="10.5" fill="#3d4852" font-weight="700">TopologySource</text>
+  <rect x="698.8" y="1688" width="51.199999999999996" height="13" rx="6" fill="#ffffff" stroke="#3f5b9a" stroke-width="0.9"/>
+  <text x="724.4" y="1697.5" font-size="8.8" fill="#3f5b9a" font-weight="700" text-anchor="middle">CONSUME</text>
+  <text x="636" y="1652" font-size="9.5" fill="#3d4852">→ MCP binding</text>
+  <text x="636" y="1667" font-size="9.5" fill="#3d4852">domain packs swap it</text>
+  <rect x="761" y="1616" width="132" height="78" rx="7" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <circle cx="773" cy="1631" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="785" y="1635" font-size="10.5" fill="#3d4852" font-weight="700">IncidentHistorySource</text>
+  <rect x="847.0" y="1688" width="40.0" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.9"/>
+  <text x="867.0" y="1697.5" font-size="8.8" fill="#9a6700" font-weight="700" text-anchor="middle">BUILD</text>
+  <text x="773" y="1652" font-size="9.5" fill="#3d4852">in-process</text>
+  <text x="773" y="1667" font-size="9.5" fill="#3d4852">domain packs swap it</text>
+  <rect x="898" y="1616" width="132" height="78" rx="7" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <circle cx="910" cy="1631" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="922" y="1635" font-size="10.5" fill="#3d4852" font-weight="700">ExternalStatusSource</text>
+  <rect x="972.8" y="1688" width="51.199999999999996" height="13" rx="6" fill="#ffffff" stroke="#3f5b9a" stroke-width="0.9"/>
+  <text x="998.4" y="1697.5" font-size="8.8" fill="#3f5b9a" font-weight="700" text-anchor="middle">CONSUME</text>
+  <text x="910" y="1652" font-size="9.5" fill="#3d4852">→ MCP binding</text>
+  <text x="910" y="1667" font-size="9.5" fill="#3d4852">domain packs swap it</text>
+  <rect x="1035" y="1616" width="132" height="78" rx="7" fill="#f1f3f5" stroke="#5b6b7a" stroke-dasharray="5 4"/>
+  <circle cx="1047" cy="1631" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="1059" y="1635" font-size="10.5" fill="#3d4852" font-weight="700">ChatSource</text>
+  <rect x="1121.0" y="1688" width="40.0" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.9"/>
+  <text x="1141.0" y="1697.5" font-size="8.8" fill="#9a6700" font-weight="700" text-anchor="middle">BUILD</text>
+  <text x="1047" y="1652" font-size="9.5" fill="#3d4852">in-process</text>
+  <text x="1047" y="1667" font-size="9.5" fill="#3d4852">domain packs swap it</text>
+  <rect x="1200" y="1300" width="400" height="400" rx="10" fill="#fffdf9" stroke="#0b7285" stroke-width="1.4"/>
+  <text x="1216" y="1326" font-size="15" fill="#0b7285" font-weight="700">actions/</text>
+  <text x="1216" y="1344" font-size="11" fill="#5b6b7a">deterministic · no LLM · exactly one ticket per fingerprint</text>
+  <rect x="1216" y="1356" width="368" height="118" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="1228" cy="1371" r="5" fill="#2b8a3e"/>
+  <text x="1240" y="1375" font-size="12.5" fill="#0b3a42" font-weight="700">service.py</text>
+  <rect x="1543.6" y="1362" width="34.4" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.9"/>
+  <text x="1560.8" y="1371.5" font-size="8.8" fill="#5b6b7a" font-weight="700" text-anchor="middle">KEEP</text>
+  <text x="1228" y="1392" font-size="11" fill="#0b3a42">open_run() — ON CONFLICT (run_id) → state read</text>
+  <text x="1228" y="1407" font-size="11" fill="#0b3a42">apply() — FOR UPDATE run · read ticket_actions</text>
+  <text x="1228" y="1422" font-size="11" fill="#0b3a42">INSERT tickets ON CONFLICT (fp) WHERE closed_at IS NULL</text>
+  <text x="1228" y="1437" font-size="11" fill="#0b3a42">  → created | loser UPDATEs winner&#x27;s ticket</text>
+  <text x="1228" y="1452" font-size="11" fill="#0b3a42">close_run() — status + conclusion + audit_end_offset</text>
+  <rect x="1216" y="1484" width="176" height="96" rx="7" fill="#eef2fb" stroke="#3f5b9a"/>
+  <circle cx="1228" cy="1499" r="5" fill="#2b8a3e"/>
+  <text x="1240" y="1503" font-size="12.5" fill="#1f2d4a" font-weight="700">ticket_actions ledger</text>
+  <rect x="1351.6" y="1574" width="34.4" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.9"/>
+  <text x="1368.8" y="1583.5" font-size="8.8" fill="#5b6b7a" font-weight="700" text-anchor="middle">KEEP</text>
+  <text x="1228" y="1520" font-size="11" fill="#1f2d4a">(fingerprint, run_id) unique</text>
+  <text x="1228" y="1535" font-size="11" fill="#1f2d4a">replayed:true on redelivery</text>
+  <text x="1228" y="1550" font-size="11" fill="#1f2d4a">partial unique index 0003</text>
+  <rect x="1408" y="1484" width="176" height="96" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="1420" cy="1499" r="5" fill="#2b8a3e"/>
+  <text x="1432" y="1503" font-size="12.5" fill="#0b3a42" font-weight="700">TicketingPort adapters</text>
+  <rect x="1420.4" y="1574" width="157.6" height="13" rx="6" fill="#ffffff" stroke="#3f5b9a" stroke-width="0.9"/>
+  <text x="1499.2" y="1583.5" font-size="8.8" fill="#3f5b9a" font-weight="700" text-anchor="middle">CONSUME · Linear MCP · gql</text>
+  <text x="1420" y="1520" font-size="11" fill="#0b3a42">FixtureTicketing ✓</text>
+  <text x="1420" y="1535" font-size="11" fill="#0b3a42">LinearAdapter (GraphQL,</text>
+  <text x="1420" y="1550" font-size="11" fill="#0b3a42">inspect errors on 200) M2</text>
+  <text x="1420" y="1565" font-size="11" fill="#0b3a42">conformance suite</text>
+  <rect x="1216" y="1590" width="176" height="96" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="1228" cy="1605" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1240" y="1609" font-size="12.5" fill="#0b3a42" font-weight="700">channels/ (IR + adapters)</text>
+  <rect x="1206.0" y="1680" width="180.0" height="13" rx="6" fill="#ffffff" stroke="#2b8a3e" stroke-width="0.9"/>
+  <text x="1296.0" y="1689.5" font-size="8.8" fill="#2b8a3e" font-weight="700" text-anchor="middle">ADOPT · slack-bolt Socket Mode</text>
+  <text x="1228" y="1626" font-size="11" fill="#0b3a42">ir.py: Message/Section IR</text>
+  <text x="1228" y="1641" font-size="11" fill="#0b3a42">slack.py · discord.py · telegram.py</text>
+  <text x="1228" y="1656" font-size="11" fill="#0b3a42">root card edited in place</text>
+  <text x="1228" y="1671" font-size="11" fill="#0b3a42">thread only findings/approval</text>
+  <rect x="1408" y="1590" width="176" height="96" rx="7" fill="#e3f3f6" stroke="#0b7285"/>
+  <circle cx="1420" cy="1605" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1432" y="1609" font-size="12.5" fill="#0b3a42" font-weight="700">findings_writeback.py</text>
+  <rect x="1538.0" y="1668" width="40.0" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.9"/>
+  <text x="1558.0" y="1677.5" font-size="8.8" fill="#9a6700" font-weight="700" text-anchor="middle">BUILD</text>
+  <text x="1420" y="1626" font-size="11" fill="#0b3a42">PlatformPort.write_finding</text>
+  <text x="1420" y="1641" font-size="11" fill="#0b3a42">B10 · stub in v1</text>
+  <rect x="1620" y="1300" width="520" height="400" rx="10" fill="#fffdf9" stroke="#6741b8" stroke-width="1.4"/>
+  <text x="1636" y="1326" font-size="15" fill="#6741b8" font-weight="700">recorder/</text>
+  <text x="1636" y="1344" font-size="11" fill="#5b6b7a">JSONL is the source of truth (ADR-0012) · Postgres only indexes</text>
+  <rect x="1636" y="1356" width="244" height="118" rx="7" fill="#efeafb" stroke="#6741b8"/>
+  <circle cx="1648" cy="1371" r="5" fill="#2b8a3e"/>
+  <text x="1660" y="1375" font-size="12.5" fill="#2f1e5c" font-weight="700">writer.py</text>
+  <rect x="1839.6" y="1362" width="34.4" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.9"/>
+  <text x="1856.8" y="1371.5" font-size="8.8" fill="#5b6b7a" font-weight="700" text-anchor="middle">KEEP</text>
+  <text x="1648" y="1392" font-size="11" fill="#2f1e5c">audit-&lt;date&gt;T&lt;time&gt;-&lt;pid&gt;.jsonl</text>
+  <text x="1648" y="1407" font-size="11" fill="#2f1e5c">fsync per line · monotonic seq</text>
+  <text x="1648" y="1422" font-size="11" fill="#2f1e5c">byte offsets returned</text>
+  <text x="1648" y="1437" font-size="11" fill="#2f1e5c">failures counter → /healthz</text>
+  <text x="1648" y="1452" font-size="11" fill="#2f1e5c">read_run(run_id) → lines</text>
+  <rect x="1892" y="1356" width="232" height="118" rx="7" fill="#eef2fb" stroke="#3f5b9a"/>
+  <circle cx="1904" cy="1371" r="5" fill="#2b8a3e"/>
+  <text x="1916" y="1375" font-size="12.5" fill="#1f2d4a" font-weight="700">runs index (Postgres)</text>
+  <rect x="2083.6" y="1456" width="34.4" height="13" rx="6" fill="#ffffff" stroke="#5b6b7a" stroke-width="0.9"/>
+  <text x="2100.8" y="1465.5" font-size="8.8" fill="#5b6b7a" font-weight="700" text-anchor="middle">KEEP</text>
+  <text x="1904" y="1392" font-size="11" fill="#1f2d4a">run_id → file + start/end offset</text>
+  <text x="1904" y="1407" font-size="11" fill="#1f2d4a">status · conclusion jsonb</text>
+  <text x="1904" y="1422" font-size="11" fill="#1f2d4a">GET /runs/{fp} reads it</text>
+  <text x="1904" y="1437" font-size="11" fill="#1f2d4a">migration 0003</text>
+  <rect x="1636" y="1484" width="244" height="96" rx="7" fill="#efeafb" stroke="#6741b8"/>
+  <circle cx="1648" cy="1499" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1660" y="1503" font-size="12.5" fill="#2f1e5c" font-weight="700">broadcast.py</text>
+  <rect x="1834.0" y="1490" width="40.0" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.9"/>
+  <text x="1854.0" y="1499.5" font-size="8.8" fill="#9a6700" font-weight="700" text-anchor="middle">BUILD</text>
+  <text x="1648" y="1520" font-size="11" fill="#2f1e5c">in-process async channel</text>
+  <text x="1648" y="1535" font-size="11" fill="#2f1e5c">publish after append (file first)</text>
+  <text x="1648" y="1550" font-size="11" fill="#2f1e5c">feeds `logs --follow`</text>
+  <text x="1648" y="1565" font-size="11" fill="#2f1e5c">seam for SSE later</text>
+  <rect x="1892" y="1484" width="232" height="96" rx="7" fill="#efeafb" stroke="#6741b8"/>
+  <circle cx="1904" cy="1499" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1916" y="1503" font-size="12.5" fill="#2f1e5c" font-weight="700">redaction</text>
+  <rect x="2078.0" y="1490" width="40.0" height="13" rx="6" fill="#ffffff" stroke="#9a6700" stroke-width="0.9"/>
+  <text x="2098.0" y="1499.5" font-size="8.8" fill="#9a6700" font-weight="700" text-anchor="middle">BUILD</text>
+  <text x="1904" y="1520" font-size="11" fill="#2f1e5c">settings.redaction patterns</text>
+  <text x="1904" y="1535" font-size="11" fill="#2f1e5c">runs before EVERY append</text>
+  <text x="1904" y="1550" font-size="11" fill="#2f1e5c">credentials never in payload</text>
+  <rect x="1636" y="1590" width="244" height="96" rx="7" fill="#efeafb" stroke="#6741b8"/>
+  <circle cx="1648" cy="1605" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1660" y="1609" font-size="12.5" fill="#2f1e5c" font-weight="700">replay.py</text>
+  <rect x="1710.8" y="1680" width="163.2" height="13" rx="6" fill="#ffffff" stroke="#2b8a3e" stroke-width="0.9"/>
+  <text x="1792.4" y="1689.5" font-size="8.8" fill="#2b8a3e" font-weight="700" text-anchor="middle">ADOPT · vcrpy + @task cache</text>
+  <text x="1648" y="1626" font-size="11" fill="#2f1e5c">read run byte range</text>
+  <text x="1648" y="1641" font-size="11" fill="#2f1e5c">feed recorded llm_call + tool_call</text>
+  <text x="1648" y="1656" font-size="11" fill="#2f1e5c">→ RecordedModel + RecordedExecutor</text>
+  <text x="1648" y="1671" font-size="11" fill="#2f1e5c">--live is explicit opt-in</text>
+  <rect x="1892" y="1590" width="232" height="96" rx="7" fill="#efeafb" stroke="#6741b8"/>
+  <circle cx="1904" cy="1605" r="5" fill="#2b8a3e"/>
+  <text x="1916" y="1609" font-size="12.5" fill="#2f1e5c" font-weight="700">B8 AuditEvent kinds</text>
+  <rect x="1921.2" y="1680" width="196.79999999999998" height="13" rx="6" fill="#ffffff" stroke="#0b7285" stroke-width="0.9"/>
+  <text x="2019.6" y="1689.5" font-size="8.8" fill="#0b7285" font-weight="700" text-anchor="middle">COPY · FH events · Dispatch Event</text>
+  <text x="1904" y="1626" font-size="11" fill="#2f1e5c">event · transition · llm_call</text>
+  <text x="1904" y="1641" font-size="11" fill="#2f1e5c">tool_call · gate · action</text>
+  <text x="1904" y="1656" font-size="11" fill="#2f1e5c">+ hypothesis · evidence (proposed)</text>
+  <text x="1904" y="1671" font-size="11" fill="#2f1e5c">+ rejected · quarantined</text>
+  <text x="60" y="1720" font-size="12" fill="#5b6b7a" font-weight="700">BACKING CONTAINERS (compose services + volume)</text>
+  <rect x="60" y="1730" width="900" height="96" rx="7" fill="#eef2fb" stroke="#3f5b9a"/>
+  <circle cx="72" cy="1745" r="5" fill="#2b8a3e"/>
+  <text x="84" y="1749" font-size="12.5" fill="#1f2d4a" font-weight="700">postgres — pgvector/pgvector:0.8.1-pg16</text>
+  <text x="72" y="1766" font-size="11" fill="#1f2d4a">tables (0001–0004): events · quarantine · runs · tickets · ticket_actions · outbox columns</text>
+  <text x="72" y="1781" font-size="11" fill="#1f2d4a">planned: episodes (0006) · langgraph checkpoints · approvals · spend_ledger · storm counters</text>
+  <text x="72" y="1796" font-size="11" fill="#1f2d4a">advisory lock per fingerprint · partial unique index open ticket per fp</text>
+  <rect x="980" y="1730" width="560" height="96" rx="7" fill="#eef2fb" stroke="#3f5b9a"/>
+  <circle cx="992" cy="1745" r="5" fill="#2b8a3e"/>
+  <text x="1004" y="1749" font-size="12.5" fill="#1f2d4a" font-weight="700">redis:7.4-alpine — appendonly</text>
+  <text x="992" y="1766" font-size="11" fill="#1f2d4a">stream agentevents (maxlen) · consumer group intelligence</text>
+  <text x="992" y="1781" font-size="11" fill="#1f2d4a">XINFO GROUPS → {lag, pending} on /healthz</text>
+  <text x="992" y="1796" font-size="11" fill="#1f2d4a">never the source of truth — the outbox is</text>
+  <rect x="1560" y="1730" width="580" height="96" rx="7" fill="#efeafb" stroke="#6741b8"/>
+  <circle cx="1572" cy="1745" r="5" fill="#2b8a3e"/>
+  <text x="1584" y="1749" font-size="12.5" fill="#2f1e5c" font-weight="700">volume audit-logs:/app/logs</text>
+  <text x="1572" y="1766" font-size="11" fill="#2f1e5c">JSONL files · one per recorder start</text>
+  <text x="1572" y="1781" font-size="11" fill="#2f1e5c">proposed: evidence snapshots beside it, content-addressed</text>
+  <text x="1572" y="1796" font-size="11" fill="#2f1e5c">outlives `docker compose down`</text>
+  <rect x="60" y="1870" width="2080" height="520" rx="10" fill="#fbfaff" stroke="#6741b8" stroke-width="1.4"/>
+  <text x="76" y="1898" font-size="15" fill="#6741b8" font-weight="700">ONE RUN, STEP BY STEP — the smallest things that get reported</text>
+  <text x="76" y="1916" font-size="10.5" fill="#5b6b7a">Each column is one reported step. Row 1: what the component does · Row 2: the B8 line it appends (kind) · Row 3: what the responder sees in the Slack thread / GET /runs · modelled on Cleric&#x27;s activity-log rows, Grafana&#x27;s hypothesis states + numbered citation chips, Datadog&#x27;s validated / invalidated / inconclusive.</text>
+  <rect x="76" y="1954" width="128" height="290" rx="6" fill="#ffffff" stroke="#0b7285"/>
+  <circle cx="88" cy="1970" r="5" fill="#2b8a3e"/>
+  <text x="98" y="1974" font-size="12" fill="#0b3a42" font-weight="700">1 admit</text>
+  <text x="84" y="1990" font-size="10" fill="#5b6b7a">receiver</text>
+  <text x="84" y="2010" font-size="10" fill="#10334a">verify → normalize</text>
+  <text x="84" y="2023" font-size="10" fill="#10334a">fingerprint → dedupe</text>
+  <text x="84" y="2036" font-size="10" fill="#10334a">or quarantine / 401</text>
+  <line x1="76" y1="2054" x2="204" y2="2054" stroke="#d5dde5"/>
+  <text x="84" y="2070" font-size="9.5" fill="#6741b8" font-weight="700">B8:</text>
+  <text x="84" y="2084" font-size="10" fill="#2f1e5c">event | quarantined</text>
+  <text x="84" y="2097" font-size="10" fill="#2f1e5c">| rejected</text>
+  <line x1="76" y1="2126" x2="204" y2="2126" stroke="#d5dde5"/>
+  <text x="84" y="2142" font-size="9.5" fill="#0b7285" font-weight="700">sees:</text>
+  <text x="84" y="2156" font-size="10" fill="#0b3a42">202 accepted</text>
+  <text x="84" y="2169" font-size="10" fill="#0b3a42">dedupe_count n</text>
+  <line x1="204" y1="2099" x2="213" y2="2099" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="213" y="1954" width="128" height="290" rx="6" fill="#ffffff" stroke="#0b7285"/>
+  <circle cx="225" cy="1970" r="5" fill="#2b8a3e"/>
+  <text x="235" y="1974" font-size="12" fill="#0b3a42" font-weight="700">2 enqueue</text>
+  <text x="221" y="1990" font-size="10" fill="#5b6b7a">outbox</text>
+  <text x="221" y="2010" font-size="10" fill="#10334a">commit row</text>
+  <text x="221" y="2023" font-size="10" fill="#10334a">XADD → receipt</text>
+  <text x="221" y="2036" font-size="10" fill="#10334a">retry if Redis down</text>
+  <line x1="213" y1="2054" x2="341" y2="2054" stroke="#d5dde5"/>
+  <text x="221" y="2070" font-size="9.5" fill="#6741b8" font-weight="700">B8:</text>
+  <text x="221" y="2084" font-size="10" fill="#2f1e5c">transition: queued</text>
+  <line x1="213" y1="2126" x2="341" y2="2126" stroke="#d5dde5"/>
+  <text x="221" y="2142" font-size="9.5" fill="#0b7285" font-weight="700">sees:</text>
+  <text x="221" y="2156" font-size="10" fill="#0b3a42">queue lag on /healthz</text>
+  <line x1="341" y1="2099" x2="350" y2="2099" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="350" y="1954" width="128" height="290" rx="6" fill="#ffffff" stroke="#0b7285"/>
+  <circle cx="362" cy="1970" r="5" fill="#2b8a3e"/>
+  <text x="372" y="1974" font-size="12" fill="#0b3a42" font-weight="700">3 claim run</text>
+  <text x="358" y="1990" font-size="10" fill="#5b6b7a">worker</text>
+  <text x="358" y="2010" font-size="10" fill="#10334a">run_id = event id</text>
+  <text x="358" y="2023" font-size="10" fill="#10334a">ON CONFLICT → state</text>
+  <text x="358" y="2036" font-size="10" fill="#10334a">audit start offset</text>
+  <line x1="350" y1="2054" x2="478" y2="2054" stroke="#d5dde5"/>
+  <text x="358" y="2070" font-size="9.5" fill="#6741b8" font-weight="700">B8:</text>
+  <text x="358" y="2084" font-size="10" fill="#2f1e5c">transition: run.open</text>
+  <line x1="350" y1="2126" x2="478" y2="2126" stroke="#d5dde5"/>
+  <text x="358" y="2142" font-size="9.5" fill="#0b7285" font-weight="700">sees:</text>
+  <text x="358" y="2156" font-size="10" fill="#0b3a42">🧵 “Investigating &lt;title&gt;”</text>
+  <text x="358" y="2169" font-size="10" fill="#0b3a42">run_id</text>
+  <line x1="478" y1="2099" x2="487" y2="2099" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="487" y="1954" width="128" height="290" rx="6" fill="#ffffff" stroke="#6741b8"/>
+  <circle cx="499" cy="1970" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="509" y="1974" font-size="12" fill="#2f1e5c" font-weight="700">4 route</text>
+  <text x="495" y="1990" font-size="10" fill="#5b6b7a">workflows</text>
+  <text x="495" y="2010" font-size="10" fill="#10334a">pick workflow by kind</text>
+  <text x="495" y="2023" font-size="10" fill="#10334a">effort ladder by sev</text>
+  <text x="495" y="2036" font-size="10" fill="#10334a">≤2 / ≤4 / ≤8 agents</text>
+  <line x1="487" y1="2054" x2="615" y2="2054" stroke="#d5dde5"/>
+  <text x="495" y="2070" font-size="9.5" fill="#6741b8" font-weight="700">B8:</text>
+  <text x="495" y="2084" font-size="10" fill="#2f1e5c">transition: workflow</text>
+  <line x1="487" y1="2126" x2="615" y2="2126" stroke="#d5dde5"/>
+  <text x="495" y="2142" font-size="9.5" fill="#0b7285" font-weight="700">sees:</text>
+  <text x="495" y="2156" font-size="10" fill="#0b3a42">“scope: N agents,</text>
+  <text x="495" y="2169" font-size="10" fill="#0b3a42">budget $X”</text>
+  <line x1="615" y1="2099" x2="624" y2="2099" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="624" y="1954" width="128" height="290" rx="6" fill="#ffffff" stroke="#6741b8"/>
+  <circle cx="636" cy="1970" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="646" y="1974" font-size="12" fill="#2f1e5c" font-weight="700">5 retrieve</text>
+  <text x="632" y="1990" font-size="10" fill="#5b6b7a">knowledge</text>
+  <text x="632" y="2010" font-size="10" fill="#10334a">episodes + recipes</text>
+  <text x="632" y="2023" font-size="10" fill="#10334a">under token budget</text>
+  <text x="632" y="2036" font-size="10" fill="#10334a">source_ref + score</text>
+  <line x1="624" y1="2054" x2="752" y2="2054" stroke="#d5dde5"/>
+  <text x="632" y="2070" font-size="9.5" fill="#6741b8" font-weight="700">B8:</text>
+  <text x="632" y="2084" font-size="10" fill="#2f1e5c">transition: retrieve</text>
+  <text x="632" y="2097" font-size="10" fill="#2f1e5c">(B3)</text>
+  <line x1="624" y1="2126" x2="752" y2="2126" stroke="#d5dde5"/>
+  <text x="632" y="2142" font-size="9.5" fill="#0b7285" font-weight="700">sees:</text>
+  <text x="632" y="2156" font-size="10" fill="#0b3a42">“2 precedents,</text>
+  <text x="632" y="2169" font-size="10" fill="#0b3a42">1 runbook” chips</text>
+  <line x1="752" y1="2099" x2="761" y2="2099" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="761" y="1954" width="128" height="290" rx="6" fill="#ffffff" stroke="#6741b8"/>
+  <circle cx="773" cy="1970" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="783" y="1974" font-size="12" fill="#2f1e5c" font-weight="700">6 plan</text>
+  <text x="769" y="1990" font-size="10" fill="#5b6b7a">supervisor</text>
+  <text x="769" y="2010" font-size="10" fill="#10334a">WHICH agents</text>
+  <text x="769" y="2023" font-size="10" fill="#10334a">context_slice each</text>
+  <text x="769" y="2036" font-size="10" fill="#10334a">hypotheses seeded</text>
+  <line x1="761" y1="2054" x2="889" y2="2054" stroke="#d5dde5"/>
+  <text x="769" y="2070" font-size="9.5" fill="#6741b8" font-weight="700">B8:</text>
+  <text x="769" y="2084" font-size="10" fill="#2f1e5c">llm_call plan ·</text>
+  <text x="769" y="2097" font-size="10" fill="#2f1e5c">hypothesis: open</text>
+  <line x1="761" y1="2126" x2="889" y2="2126" stroke="#d5dde5"/>
+  <text x="769" y="2142" font-size="9.5" fill="#0b7285" font-weight="700">sees:</text>
+  <text x="769" y="2156" font-size="10" fill="#0b3a42">hypothesis board:</text>
+  <text x="769" y="2169" font-size="10" fill="#0b3a42">H1 open · H2 open</text>
+  <line x1="889" y1="2099" x2="898" y2="2099" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="898" y="1954" width="128" height="290" rx="6" fill="#ffffff" stroke="#6741b8"/>
+  <circle cx="910" cy="1970" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="920" y="1974" font-size="12" fill="#2f1e5c" font-weight="700">7 agent start</text>
+  <text x="906" y="1990" font-size="10" fill="#5b6b7a">agent_runner</text>
+  <text x="906" y="2010" font-size="10" fill="#10334a">load spec · prompt sha</text>
+  <text x="906" y="2023" font-size="10" fill="#10334a">skills preloaded</text>
+  <text x="906" y="2036" font-size="10" fill="#10334a">input validated</text>
+  <line x1="898" y1="2054" x2="1026" y2="2054" stroke="#d5dde5"/>
+  <text x="906" y="2070" font-size="9.5" fill="#6741b8" font-weight="700">B8:</text>
+  <text x="906" y="2084" font-size="10" fill="#2f1e5c">transition:</text>
+  <text x="906" y="2097" font-size="10" fill="#2f1e5c">agent.start</text>
+  <line x1="898" y1="2126" x2="1026" y2="2126" stroke="#d5dde5"/>
+  <text x="906" y="2142" font-size="9.5" fill="#0b7285" font-weight="700">sees:</text>
+  <text x="906" y="2156" font-size="10" fill="#0b3a42">“↳ change-correlator</text>
+  <text x="906" y="2169" font-size="10" fill="#0b3a42">running”</text>
+  <line x1="1026" y1="2099" x2="1035" y2="2099" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="1035" y="1954" width="128" height="290" rx="6" fill="#ffffff" stroke="#6741b8"/>
+  <circle cx="1047" cy="1970" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1057" y="1974" font-size="12" fill="#2f1e5c" font-weight="700">8 witness read</text>
+  <text x="1043" y="1990" font-size="10" fill="#5b6b7a">mcp.gateway</text>
+  <text x="1043" y="2010" font-size="10" fill="#10334a">tier check ×2</text>
+  <text x="1043" y="2023" font-size="10" fill="#10334a">query vendor</text>
+  <text x="1043" y="2036" font-size="10" fill="#10334a">snapshot result</text>
+  <line x1="1035" y1="2054" x2="1163" y2="2054" stroke="#d5dde5"/>
+  <text x="1043" y="2070" font-size="9.5" fill="#6741b8" font-weight="700">B8:</text>
+  <text x="1043" y="2084" font-size="10" fill="#2f1e5c">tool_call + evidence</text>
+  <text x="1043" y="2097" font-size="10" fill="#2f1e5c">(proposed)</text>
+  <line x1="1035" y1="2126" x2="1163" y2="2126" stroke="#d5dde5"/>
+  <text x="1043" y="2142" font-size="9.5" fill="#0b7285" font-weight="700">sees:</text>
+  <text x="1043" y="2156" font-size="10" fill="#0b3a42">citation chip [1]</text>
+  <text x="1043" y="2169" font-size="10" fill="#0b3a42">query · ts · sha</text>
+  <line x1="1163" y1="2099" x2="1172" y2="2099" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="1172" y="1954" width="128" height="290" rx="6" fill="#ffffff" stroke="#6741b8"/>
+  <circle cx="1184" cy="1970" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1194" y="1974" font-size="12" fill="#2f1e5c" font-weight="700">9 model turn</text>
+  <text x="1180" y="1990" font-size="10" fill="#5b6b7a">ports.model</text>
+  <text x="1180" y="2010" font-size="10" fill="#10334a">prompt_ref + sha</text>
+  <text x="1180" y="2023" font-size="10" fill="#10334a">usage · latency</text>
+  <text x="1180" y="2036" font-size="10" fill="#10334a">Decimal cost</text>
+  <line x1="1172" y1="2054" x2="1300" y2="2054" stroke="#d5dde5"/>
+  <text x="1180" y="2070" font-size="9.5" fill="#6741b8" font-weight="700">B8:</text>
+  <text x="1180" y="2084" font-size="10" fill="#2f1e5c">llm_call</text>
+  <line x1="1172" y1="2126" x2="1300" y2="2126" stroke="#d5dde5"/>
+  <text x="1180" y="2142" font-size="9.5" fill="#0b7285" font-weight="700">sees:</text>
+  <text x="1180" y="2156" font-size="10" fill="#0b3a42">cost so far $0.0x</text>
+  <text x="1180" y="2169" font-size="10" fill="#0b3a42">turn k / max</text>
+  <line x1="1300" y1="2099" x2="1309" y2="2099" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="1309" y="1954" width="128" height="290" rx="6" fill="#ffffff" stroke="#6741b8"/>
+  <circle cx="1321" cy="1970" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1331" y="1974" font-size="12" fill="#2f1e5c" font-weight="700">10 finding</text>
+  <text x="1317" y="1990" font-size="10" fill="#5b6b7a">agent_runner</text>
+  <text x="1317" y="2010" font-size="10" fill="#10334a">output validated</text>
+  <text x="1317" y="2023" font-size="10" fill="#10334a">evidence_ref per claim</text>
+  <text x="1317" y="2036" font-size="10" fill="#10334a">artifact_ref</text>
+  <line x1="1309" y1="2054" x2="1437" y2="2054" stroke="#d5dde5"/>
+  <text x="1317" y="2070" font-size="9.5" fill="#6741b8" font-weight="700">B8:</text>
+  <text x="1317" y="2084" font-size="10" fill="#2f1e5c">finding (B11)</text>
+  <line x1="1309" y1="2126" x2="1437" y2="2126" stroke="#d5dde5"/>
+  <text x="1317" y="2142" font-size="9.5" fill="#0b7285" font-weight="700">sees:</text>
+  <text x="1317" y="2156" font-size="10" fill="#0b3a42">“deploy #412 landed</text>
+  <text x="1317" y="2169" font-size="10" fill="#0b3a42">4m before onset [1][2]”</text>
+  <line x1="1437" y1="2099" x2="1446" y2="2099" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="1446" y="1954" width="128" height="290" rx="6" fill="#ffffff" stroke="#6741b8"/>
+  <circle cx="1458" cy="1970" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="1468" y="1974" font-size="12" fill="#2f1e5c" font-weight="700">11 board</text>
+  <text x="1454" y="1990" font-size="10" fill="#5b6b7a">hypothesis_board</text>
+  <text x="1454" y="2010" font-size="10" fill="#10334a">H1 → validated</text>
+  <text x="1454" y="2023" font-size="10" fill="#10334a">H2 → invalidated</text>
+  <text x="1454" y="2036" font-size="10" fill="#10334a">H3 inconclusive</text>
+  <line x1="1446" y1="2054" x2="1574" y2="2054" stroke="#d5dde5"/>
+  <text x="1454" y="2070" font-size="9.5" fill="#6741b8" font-weight="700">B8:</text>
+  <text x="1454" y="2084" font-size="10" fill="#2f1e5c">hypothesis: state</text>
+  <text x="1454" y="2097" font-size="10" fill="#2f1e5c">change</text>
+  <line x1="1446" y1="2126" x2="1574" y2="2126" stroke="#d5dde5"/>
+  <text x="1454" y="2142" font-size="9.5" fill="#0b7285" font-weight="700">sees:</text>
+  <text x="1454" y="2156" font-size="10" fill="#0b3a42">board updated</text>
+  <text x="1454" y="2169" font-size="10" fill="#0b3a42">✓ ✗ ?</text>
+  <line x1="1574" y1="2099" x2="1583" y2="2099" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="1583" y="1954" width="128" height="290" rx="6" fill="#ffffff" stroke="#6741b8"/>
+  <circle cx="1595" cy="1970" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="1605" y="1974" font-size="12" fill="#2f1e5c" font-weight="700">12 verify</text>
+  <text x="1591" y="1990" font-size="10" fill="#5b6b7a">verify agents</text>
+  <text x="1591" y="2010" font-size="10" fill="#10334a">disproof attempted</text>
+  <text x="1591" y="2023" font-size="10" fill="#10334a">temporal order ok?</text>
+  <text x="1591" y="2036" font-size="10" fill="#10334a">gate root_caused</text>
+  <line x1="1583" y1="2054" x2="1711" y2="2054" stroke="#d5dde5"/>
+  <text x="1591" y="2070" font-size="9.5" fill="#6741b8" font-weight="700">B8:</text>
+  <text x="1591" y="2084" font-size="10" fill="#2f1e5c">gate: verify</text>
+  <line x1="1583" y1="2126" x2="1711" y2="2126" stroke="#d5dde5"/>
+  <text x="1591" y="2142" font-size="9.5" fill="#0b7285" font-weight="700">sees:</text>
+  <text x="1591" y="2156" font-size="10" fill="#0b3a42">“tried to disprove H1:</text>
+  <text x="1591" y="2169" font-size="10" fill="#0b3a42">no counter-evidence”</text>
+  <line x1="1711" y1="2099" x2="1720" y2="2099" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="1720" y="1954" width="128" height="290" rx="6" fill="#ffffff" stroke="#6741b8"/>
+  <circle cx="1732" cy="1970" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="1742" y="1974" font-size="12" fill="#2f1e5c" font-weight="700">13 conclude</text>
+  <text x="1728" y="1990" font-size="10" fill="#5b6b7a">synthesize</text>
+  <text x="1728" y="2010" font-size="10" fill="#10334a">B6 status + confidence</text>
+  <text x="1728" y="2023" font-size="10" fill="#10334a">summary_md · actions</text>
+  <text x="1728" y="2036" font-size="10" fill="#10334a">tokens · wall_ms</text>
+  <line x1="1720" y1="2054" x2="1848" y2="2054" stroke="#d5dde5"/>
+  <text x="1728" y="2070" font-size="9.5" fill="#6741b8" font-weight="700">B8:</text>
+  <text x="1728" y="2084" font-size="10" fill="#2f1e5c">conclusion (B6)</text>
+  <line x1="1720" y1="2126" x2="1848" y2="2126" stroke="#d5dde5"/>
+  <text x="1728" y="2142" font-size="9.5" fill="#0b7285" font-weight="700">sees:</text>
+  <text x="1728" y="2156" font-size="10" fill="#0b3a42">status · confidence</text>
+  <text x="1728" y="2169" font-size="10" fill="#0b3a42">findings · next steps</text>
+  <line x1="1848" y1="2099" x2="1857" y2="2099" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="1857" y="1954" width="128" height="290" rx="6" fill="#ffffff" stroke="#0b7285"/>
+  <circle cx="1869" cy="1970" r="5" fill="#2b8a3e"/>
+  <text x="1879" y="1974" font-size="12" fill="#0b3a42" font-weight="700">14 act</text>
+  <text x="1865" y="1990" font-size="10" fill="#5b6b7a">actions</text>
+  <text x="1865" y="2010" font-size="10" fill="#10334a">ticket create | update</text>
+  <text x="1865" y="2023" font-size="10" fill="#10334a">(fp, run_id) ledger</text>
+  <text x="1865" y="2036" font-size="10" fill="#10334a">receipt</text>
+  <line x1="1857" y1="2054" x2="1985" y2="2054" stroke="#d5dde5"/>
+  <text x="1865" y="2070" font-size="9.5" fill="#6741b8" font-weight="700">B8:</text>
+  <text x="1865" y="2084" font-size="10" fill="#2f1e5c">action</text>
+  <line x1="1857" y1="2126" x2="1985" y2="2126" stroke="#d5dde5"/>
+  <text x="1865" y="2142" font-size="9.5" fill="#0b7285" font-weight="700">sees:</text>
+  <text x="1865" y="2156" font-size="10" fill="#0b3a42">“opened SMOKE-… ” or</text>
+  <text x="1865" y="2169" font-size="10" fill="#0b3a42">“updated (#3)”</text>
+  <line x1="1985" y1="2099" x2="1994" y2="2099" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <rect x="1994" y="1954" width="128" height="290" rx="6" fill="#ffffff" stroke="#0b7285"/>
+  <circle cx="2006" cy="1970" r="5" fill="#2b8a3e"/>
+  <text x="2016" y="1974" font-size="12" fill="#0b3a42" font-weight="700">15 close</text>
+  <text x="2002" y="1990" font-size="10" fill="#5b6b7a">worker</text>
+  <text x="2002" y="2010" font-size="10" fill="#10334a">audit end offset</text>
+  <text x="2002" y="2023" font-size="10" fill="#10334a">status concluded</text>
+  <text x="2002" y="2036" font-size="10" fill="#10334a">XACK after commit</text>
+  <line x1="1994" y1="2054" x2="2122" y2="2054" stroke="#d5dde5"/>
+  <text x="2002" y="2070" font-size="9.5" fill="#6741b8" font-weight="700">B8:</text>
+  <text x="2002" y="2084" font-size="10" fill="#2f1e5c">transition:</text>
+  <text x="2002" y="2097" font-size="10" fill="#2f1e5c">run.close</text>
+  <line x1="1994" y1="2126" x2="2122" y2="2126" stroke="#d5dde5"/>
+  <text x="2002" y="2142" font-size="9.5" fill="#0b7285" font-weight="700">sees:</text>
+  <text x="2002" y="2156" font-size="10" fill="#0b3a42">GET /runs/{fp}</text>
+  <text x="2002" y="2169" font-size="10" fill="#0b3a42">audit byte range</text>
+  <path d="M898 1946 L898 1938 L1437 1938 L1437 1946" fill="none" stroke="#6741b8" stroke-width="1.2"/>
+  <text x="1167.5" y="1933" font-size="10.5" fill="#6741b8" text-anchor="middle">repeats per agent (∥ across agents) and per turn within an agent, bounded by governor budget</text>
+  <rect x="76" y="2264" width="672" height="92" rx="7" fill="#fbf0da" stroke="#9a6700"/>
+  <circle cx="88" cy="2279" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="100" y="2283" font-size="12.5" fill="#5c3d00" font-weight="700">budget / provider failure path</text>
+  <text x="88" y="2300" font-size="11" fill="#5c3d00">governor breach or breaker open → synthesize inconclusive | needs_human</text>
+  <text x="88" y="2315" font-size="11" fill="#5c3d00">with partial findings → B8 gate: budget → ticket still filed</text>
+  <text x="88" y="2330" font-size="11" fill="#5c3d00">a run never dies silently (§5.7); XACK only after that Conclusion is durable</text>
+  <rect x="764" y="2264" width="672" height="92" rx="7" fill="#fbf0da" stroke="#9a6700"/>
+  <circle cx="776" cy="2279" r="5" fill="#ffffff" stroke="#3f5b9a" stroke-width="1.6"/>
+  <text x="788" y="2283" font-size="12.5" fill="#5c3d00" font-weight="700">privileged action path (M5)</text>
+  <text x="776" y="2300" font-size="11" fill="#5c3d00">mitigation-ranker draft → B5 ApprovalRequest → Slack buttons → interrupt</text>
+  <text x="776" y="2315" font-size="11" fill="#5c3d00">persists across restart → consume token ONCE → act → mitigation-verifier</text>
+  <text x="776" y="2330" font-size="11" fill="#5c3d00">B8: gate approval.requested · approval.decided · action · gate verified → mitigated</text>
+  <rect x="1452" y="2264" width="672" height="92" rx="7" fill="#efeafb" stroke="#6741b8"/>
+  <circle cx="1464" cy="2279" r="5" fill="#ffffff" stroke="#9a6700" stroke-width="1.6" stroke-dasharray="2 2"/>
+  <text x="1476" y="2283" font-size="12.5" fill="#2f1e5c" font-weight="700">healthy-system path (no-fault eval)</text>
+  <text x="1464" y="2300" font-size="11" fill="#2f1e5c">flapping monitor → every agent returns empty candidates → board all inconclusive</text>
+  <text x="1464" y="2315" font-size="11" fill="#2f1e5c">→ verify has nothing to validate → B6 inconclusive, explicit “no change / no saturation”</text>
+  <text x="1464" y="2330" font-size="11" fill="#2f1e5c">ticket updated, not opened · this run IS the no-fault eval case (12/14 products lack one)</text>
+  <line x1="400" y1="242" x2="400" y2="270" stroke="#3d4852" stroke-width="2.4" marker-end="url(#arrow)"/>
+  <text x="470" y="262" font-size="10.5" fill="#5b6b7a" text-anchor="middle">B1 verified inbound</text>
+  <line x1="780" y1="380" x2="800" y2="380" stroke="#3d4852" stroke-width="2.4" marker-end="url(#arrow)"/>
+  <text x="790.0" y="374.0" font-size="10.5" fill="#5b6b7a" text-anchor="middle">B2</text>
+  <line x1="990" y1="600" x2="990" y2="630" stroke="#3d4852" stroke-width="2.4" marker-end="url(#arrow)"/>
+  <text x="1060" y="622" font-size="10.5" fill="#5b6b7a" text-anchor="middle">B2 → engine</text>
+  <line x1="560" y1="1270" x2="560" y2="1300" stroke="#3d4852" stroke-width="2.4" marker-end="url(#arrow)"/>
+  <text x="620" y="1292" font-size="10.5" fill="#5b6b7a" text-anchor="middle">B4 ToolCall</text>
+  <line x1="1400" y1="1000" x2="1200" y2="1000" stroke="#3d4852" stroke-width="1.3" marker-end="url(#arrow)"/>
+  <text x="1300" y="992" font-size="10.5" fill="#5b6b7a" text-anchor="middle">B6 Conclusion — determinism boundary</text>
+  <line x1="1200" y1="1000" x2="1200" y2="1300" stroke="#3d4852" stroke-width="2.4" marker-end="url(#arrow)"/>
+  <line x1="1460" y1="690" x2="1480" y2="690" stroke="#3d4852" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+  <text x="1470" y="680" font-size="10.5" fill="#5b6b7a" text-anchor="middle">B3</text>
+  <line x1="1460" y1="1000" x2="1480" y2="1000" stroke="#3d4852" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+  <text x="1470.0" y="994.0" font-size="10.5" fill="#5b6b7a" text-anchor="middle">budget</text>
+  <line x1="1600" y1="1500" x2="1620" y2="1500" stroke="#3d4852" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+  <text x="1610.0" y="1494.0" font-size="10.5" fill="#5b6b7a" text-anchor="middle">B8 action</text>
+  <line x1="1180" y1="1500" x2="1200" y2="1500" stroke="#3d4852" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+  <line x1="600" y1="1700" x2="600" y2="1708" stroke="#3d4852" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+  <line x1="600" y1="1708" x2="1880" y2="1708" stroke="#6741b8" stroke-width="1.3" stroke-dasharray="6 4"/>
+  <line x1="1880" y1="1708" x2="1880" y2="1700" stroke="#3d4852" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+  <text x="1240" y="1704" font-size="10.5" fill="#6741b8" text-anchor="middle">B8 — every node, llm_call, tool_call, gate, action, evidence → recorder</text>
+</svg>
