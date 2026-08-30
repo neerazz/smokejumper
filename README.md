@@ -29,14 +29,14 @@ If either disagrees with `SPEC.md`, it is stale and must be fixed in the same ch
 
 ### Component view
 
-![Smokejumper component view](architecture/smokejumper-components.svg)
+![Smokejumper component view](architecture/system/c2-components.svg)
 
 ### Event flow and boundary contracts
 
-![Smokejumper flow](architecture/smokejumper-architecture.svg)
+![Smokejumper flow](architecture/system/c2-containers.svg)
 
 The flow diagram's editable Mermaid source is
-[`architecture/smokejumper-architecture.mmd`](architecture/smokejumper-architecture.mmd).
+[`architecture/system/c2-containers.mmd`](architecture/system/c2-containers.mmd).
 The component view is hand-maintained SVG. Diagram maintenance instructions live in the source
 files so README does not become a parallel runbook.
 

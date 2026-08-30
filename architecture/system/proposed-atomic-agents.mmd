@@ -1,0 +1,118 @@
+%% Smokejumper — PROPOSED atomic-agent architecture (pre-planning, 2026-08-29)
+%% Companion to docs/plans/2026-08-29-atomic-agents-preplan.md. NOT yet the SPEC design:
+%%   c2-containers.mmd stays the canonical v1 view until SPEC §5.3 is amended.
+%% One question answered: "If agents are questions rather than roles, what are the layers,
+%%   what does each agent witness, and where do the human gate and the audit spine sit?"
+%% Editing: re-render with  python3 scripts/render_architecture.py architecture/system/proposed-atomic-agents.mmd
+%% Styling: teal = core · dashed grey = port / external · amber = approval-gated ·
+%%          violet = knowledge / audit spine · green = declarative files (no code).
+%%{init: {"htmlLabels": false, "themeCSS": "text { white-space: pre; }", "flowchart": {"htmlLabels": false}}}%%
+
+flowchart TB
+  accTitle: Smokejumper proposed atomic-agent architecture
+  accDescr: Skills, question-sized agents, and deterministic workflows sit between the existing ingestion path and the existing actions and flight recorder. Agents witness evidence only through eight witness ports behind the single MCP gateway. A verify stage gates root_caused; act agents cross the approval gate.
+
+  %% ═══ INGESTION (unchanged, landed) ══════════════════════════
+  subgraph L2["  INGESTION — deterministic, landed  "]
+    direction LR
+    RECV["RECEIVER<br/>5 HTTP sources + Slack<br/>verify · normalize B2 · fingerprint · dedupe · storm"]
+    QUEUE(["Postgres outbox → Redis Streams<br/>at-least-once"])
+    RECV --> QUEUE
+  end
+
+  %% ═══ THREE DECLARATIVE LAYERS ══════════════════════════════
+  subgraph L3["  INTELLIGENCE — three layers, only the middle one thinks  "]
+    direction TB
+
+    SKILLS["SKILLS — knowledge, no LLM, no I/O schema<br/>skills/&lt;name&gt;/SKILL.md ≤500 lines<br/>severity-rubric · change-forensics · cascading-failure-playbook<br/>regulatory-clocks · reconciliation-checks · blameless-timeline"]
+
+    subgraph AG["  AGENTS — one bounded question → one typed answer  "]
+      direction LR
+      AGDEF["EACH AGENT = one directory, zero code<br/>registry/agents/NAME.yaml<br/>prompts/agents/NAME/vN.md<br/>schemas/agents/NAME.in.json + .out.json<br/>evals/agents/NAME/ (≥20 cases, ≥3 no-fault)<br/>budget · tool allowlist<br/>side_effects: read | draft | act"]
+      TRI["TRIAGE<br/>impact-quantifier<br/>severity-assessor<br/>ownership-resolver<br/>known-issue-matcher"]
+      INV["INVESTIGATE — parallel, read-only<br/>change-correlator · saturation-finder<br/>error-signature-summarizer · blast-radius-mapper<br/>vendor-fault-checker · precedent-researcher<br/>hypothesis-tracker · bisection-planner"]
+      VER["VERIFY — gates root_caused<br/>adversarial-verifier<br/>temporal-order-checker<br/>mitigation-verifier"]
+      COM["COMMUNICATE / RESOLVE<br/>timeline-scribe · internal-update-drafter<br/>status-page-drafter · stakeholder-notifier<br/>handoff-packager · recovery-confirmer"]
+      MIT["MITIGATE<br/>mitigation-ranker (draft)<br/>runbook-stepper (draft)<br/>rollback-executor (ACT)<br/>flag-toggler (ACT)"]
+      LRN["LEARN / PREVENT — scheduled<br/>postmortem-drafter · factor-extractor<br/>action-item-gate · action-item-chaser<br/>trend-analyst · expiry-forecaster"]
+    end
+
+    WF["WORKFLOWS — deterministic edges (ADR-0003)<br/>no LLM picks the phase order<br/>registry/workflows/ alert · slack-question · mitigate · learn<br/>alert: triage → investigate ∥ → verify → synthesize → actions<br/>effort ladder by severity: ≤2 / ≤4 / ≤8 agents"]
+
+    SUP["SUPERVISOR NODES — LangGraph + Postgres checkpointer<br/>plan: picks WHICH agents + context_slice, never the order<br/>synthesize: B6 — root_caused only if VERIFY validated<br/>prompts/supervisor/ plan · synthesize · verify"]
+
+    HYP[("HYPOTHESIS BOARD — typed shared state<br/>Hypothesis{text, state, evidence_refs, owner_agent}<br/>open · validated · invalidated · inconclusive")]
+
+    SKILLS -. "preloaded into prompts" .-> AGDEF
+    WF -- "dispatch B11 Assignment" --> TRI
+    WF --> INV
+    WF --> VER
+    WF --> COM
+    INV -- "B11 Finding + artifact_ref, ≤2k tokens" --> SUP
+    VER --> SUP
+    TRI --> SUP
+    SUP <--> HYP
+    INV -. "write" .-> HYP
+    VER -. "update state" .-> HYP
+  end
+
+  GOV["GOVERNOR — per AGENT FILE first, per run second<br/>max_tool_calls · max_tokens · max_turns · timeout<br/>Decimal USD ledger · fails closed on unpriced model<br/>breach → inconclusive with partial findings"]
+
+  MODELS["MODEL PROVIDER — ports/model.py<br/>only SDK import · role → model is config<br/>records prompt_ref + sha256, usage, cost"]
+
+  %% ═══ WITNESS PORTS (what agents can see) ═══════════════════
+  subgraph L4["  WITNESS PORTS — the only way an agent sees the world  "]
+    direction TB
+    GW["MCP GATEWAY — the only MCP client<br/>manifest.yaml tier · middleware deny + executor re-check<br/>every read → B8 tool_call + EvidenceRecord snapshot"]
+    WIT["8 WITNESS PORTS, one adapter per vendor<br/>ChangeSource · MetricSource · LogSource · TraceSource<br/>TopologySource · IncidentHistorySource<br/>ExternalStatusSource · ChatSource"]
+    PRIV["PRIVILEGED TIER — ships empty<br/>rollback · flag toggle<br/>suspend graph → B5 approval → single-use token"]
+    GW --> WIT
+    GW --> PRIV
+  end
+
+  PACKS["DOMAIN PACKS — adapters + topology + rubric skill + recipes + fixtures, 0 agent changes<br/>infra (v1 lab: Prometheus · Loki · ArgoCD · faultbox)<br/>data-pipeline · security · payments · ML-model · support"]
+
+  APPROVE["Slack approval UI<br/>approve / deny"]
+
+  %% ═══ EXECUTION & AUDIT (landed + widened) ═══════════════════
+  subgraph L5["  EXECUTION & AUDIT  "]
+    direction LR
+    ACT["ACTIONS — deterministic, no LLM<br/>TicketingPort (fixture → Linear → Jira…)<br/>one ticket per fingerprint · (fingerprint, run_id) idempotent<br/>Slack receipt"]
+    FR["FLIGHT RECORDER — JSONL, append-only (landed)<br/>+ EvidenceRecord{tool, query, ts, result_sha256, snapshot_ref}<br/>+ Hypothesis transitions · every llm_call / tool_call<br/>→ deterministic replay from snapshots · eval with no-fault cases"]
+    ACT ~~~ FR
+  end
+
+  %% ═══ Primary path ══════════════════════════════════════════
+  QUEUE == "B2 AgentEvent" ==> WF
+  SUP == "B6 Conclusion — determinism boundary" ==> ACT
+
+  %% ═══ Secondary paths ═══════════════════════════════════════
+  INV -- "B4 ToolCall — every witness read" --> GW
+  COM --> GW
+  LRN --> GW
+  WIT -- "adapters" --> PACKS
+  PRIV -- "B5" --> APPROVE
+  MIT -. "act agents only, serialized, never parallel" .-> PRIV
+  L3 -- "every model call" --> MODELS
+  GOV -.- AGDEF
+  L3 -- "B8 every node, every Finding" --> FR
+  GW -. "B8 tool_call + snapshot" .-> FR
+  MODELS -. "B8 llm_call" .-> FR
+  FR -. "replay: recorded completions + recorded witness results" .-> SUP
+
+  %% ═══ Styling ═══════════════════════════════════════════════
+  classDef core fill:#e3f3f6,stroke:#0b7285,color:#0b3a42;
+  classDef port fill:#f1f3f5,stroke:#5b6b7a,stroke-dasharray:5 4,color:#3d4852;
+  classDef gate fill:#fbf0da,stroke:#9a6700,color:#5c3d00;
+  classDef learn fill:#efeafb,stroke:#6741b8,color:#2f1e5c;
+  classDef files fill:#e6f4ea,stroke:#2b8a3e,color:#1b4d24;
+  classDef queue fill:#f8f9fa,stroke:#868e96,color:#343a40;
+  classDef layer fill:#fffdf5,stroke:#b8a800,color:#5c5400;
+
+  class RECV,SUP,GW,WIT,ACT,GOV,MODELS core;
+  class SKILLS,AGDEF,TRI,INV,VER,COM,LRN,WF,PACKS files;
+  class MIT,PRIV gate;
+  class HYP,FR learn;
+  class APPROVE port;
+  class QUEUE queue;
+  class L2,L3,AG,L4,L5 layer;
